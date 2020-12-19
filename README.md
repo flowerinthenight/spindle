@@ -1,2 +1,2 @@
 # spindle
-A Spanner-based distributed locking library.
+A [Spanner](https://cloud.google.com/spanner/)-based distributed locking library.
