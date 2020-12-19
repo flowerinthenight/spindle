@@ -24,9 +24,12 @@ func main() {
 
 	done := make(chan error, 1)
 	quit, cancel := context.WithCancel(context.Background())
-	spindle.New(db, "testlease", "mylock", spindle.WithDuration(5000)).Run(quit, done)
+	lock := spindle.New(db, "testlease", "mylock", spindle.WithDuration(5000))
+	lock.Run(quit, done)
 
-	time.Sleep(time.Second * 40)
+	time.Sleep(time.Second * 20)
+	log.Println("HasLock:", lock.HasLock())
+	time.Sleep(time.Second * 20)
 	cancel()
 	<-done
 }
