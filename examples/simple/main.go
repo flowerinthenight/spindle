@@ -10,6 +10,9 @@ import (
 )
 
 func main() {
+	// To run, update the database name, table name, and, optionally, the lock name.
+	// It is assumed that your environment is able to authenticate to Spanner via
+	// GOOGLE_APPLICATION_CREDENTIALS environment variable.
 	db, err := spanner.NewClient(
 		context.Background(),
 		"projects/mobingi-main/instances/alphaus-prod/databases/main",
@@ -25,6 +28,8 @@ func main() {
 	done := make(chan error, 1)
 	quit, cancel := context.WithCancel(context.Background())
 	lock := spindle.New(db, "testlease", "mylock", spindle.WithDuration(5000))
+
+	// Start the main loop.
 	lock.Run(quit, done)
 
 	time.Sleep(time.Second * 20)
