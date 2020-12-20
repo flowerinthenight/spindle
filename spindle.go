@@ -22,12 +22,14 @@ type withDuration int64
 
 func (w withDuration) Apply(o *Lock) { o.duration = int64(w) }
 
+// WithDuration sets the locker's lease duration.
 func WithDuration(v int64) Option { return withDuration(v) }
 
 type withLogger struct{ l *log.Logger }
 
 func (w withLogger) Apply(o *Lock) { o.logger = w.l }
 
+// WithLogger sets the locker's logger object.
 func WithLogger(v *log.Logger) Option { return withLogger{v} }
 
 type Lock struct {
@@ -42,6 +44,8 @@ type Lock struct {
 	logger   *log.Logger
 }
 
+// Run starts the main lock loop which can be canceled using the input context. You can provide
+// an optional 'done' channel if you want to be notified when the loop is done.
 func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 	ticker := time.NewTicker(time.Millisecond * time.Duration(l.duration))
 	quit := context.WithValue(ctx, struct{}{}, nil)
@@ -210,6 +214,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 	return nil
 }
 
+// HasLock returns true if this instance got the lock, together with the lock token.
 func (l *Lock) HasLock() (bool, string) {
 	token, err := l.getTokenFromDb()
 	if err != nil {
@@ -292,6 +297,7 @@ func (l *Lock) heartbeat() {
 	})
 }
 
+// New returns a lock object with a default of 10s lease duration.
 func New(db *spanner.Client, table, name string, o ...Option) *Lock {
 	l := &Lock{
 		db:       db,
