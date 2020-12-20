@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -36,6 +37,8 @@ type Lock struct {
 	id       string // unique id for this instance
 	duration int64  // lock duration in ms
 	leader   int32  // 1 = leader, 0 = !leader
+	token    *time.Time
+	mtx      *sync.Mutex
 	logger   *log.Logger
 }
 
@@ -44,89 +47,32 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 	quit := context.WithValue(ctx, struct{}{}, nil)
 
 	go func() {
-		var token string
 		initial := true
-		var cnt int64
+		var active int32
+		var count int64
 
 		for {
-			l.logger.Println("-->", cnt)
-			cnt++
-
 			select {
 			case <-ticker.C:
-				var tokenlocked string
-				var diff int64
-
-				l.db.ReadWriteTransaction(context.Background(), func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
-					stmt := spanner.Statement{
-						SQL:    fmt.Sprintf("select timestamp_diff(current_timestamp(), heartbeat, millisecond), token from %v where name = @name", l.table),
-						Params: map[string]interface{}{"name": l.name},
-					}
-
-					iter := txn.Query(ctx, stmt)
-					defer iter.Stop()
-					for {
-						row, err := iter.Next()
-						if err == iterator.Done || err != nil {
-							break
-						}
-
-						var v spanner.NullInt64
-						var t spanner.NullTime
-						row.Columns(&v, &t)
-
-						diff = v.Int64
-						tokenlocked = t.Time.UTC().Format(time.RFC3339Nano)
-						l.logger.Printf("diff=%v, fence=%v", v.Int64, tokenlocked)
-					}
-
-					return nil
-				})
-
-				if token != "" && token == tokenlocked {
-					l.logger.Println("leader active (me)")
-					atomic.StoreInt32(&l.leader, 1)
-					l.heartbeat()
-					break // switch
+				count++
+				if atomic.LoadInt32(&active) == 1 {
+					continue
 				}
 
-				if diff > 0 && diff < l.duration {
-					l.logger.Println("leader active (not me)")
-					atomic.StoreInt32(&l.leader, 0)
-					break // switch
-				}
+				go func(n int64) {
+					atomic.StoreInt32(&active, 1)
+					defer func(begin time.Time) {
+						atomic.StoreInt32(&active, 0)
+						l.logger.Printf(">>> iter=%v, duration=%v", n, time.Since(begin))
+					}(time.Now())
 
-				if initial {
-					// Attempt first ever lock; use insert instead of update. Only one client should be able to do this.
-					// The return commit timestamp will be our fencing token (string version).
-					cts, err := l.db.ReadWriteTransaction(context.Background(), func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
-						ts := "PENDING_COMMIT_TIMESTAMP()"
-						stmt := spanner.Statement{
-							SQL: fmt.Sprintf("insert %v (name, heartbeat, token) values ('%s', %v, %v)", l.table, l.name, ts, ts),
-						}
+					var tokenlocked string
+					var diff int64
 
-						n, err := txn.Update(ctx, stmt)
-						l.logger.Println("insert:", err, n)
-						return err
-					})
-
-					if err == nil {
-						// We got the first ever lock!
-						token = cts.UTC().Format(time.RFC3339Nano)
-						l.logger.Printf("leadertoken: %v", token)
-						atomic.StoreInt32(&l.leader, 1)
-						break // switch
-					}
-
-					l.logger.Printf("leader attempt failed: %v", err)
-					initial = false
-				}
-
-				if !initial {
-					var curtoken string
+					// See if there is an active leased lock (could be us).
 					_, err := l.db.ReadWriteTransaction(context.Background(), func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 						stmt := spanner.Statement{
-							SQL:    fmt.Sprintf("select token from %v where name = @name", l.table),
+							SQL:    fmt.Sprintf("select timestamp_diff(current_timestamp(), heartbeat, millisecond), token from %v where name = @name", l.table),
 							Params: map[string]interface{}{"name": l.name},
 						}
 
@@ -135,58 +81,127 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 						defer iter.Stop()
 						for {
 							row, err := iter.Next()
-							if err == iterator.Done || err != nil {
+							if err == iterator.Done {
+								break
+							}
+
+							if err != nil {
 								reterr = err
 								break
 							}
 
+							var v spanner.NullInt64
 							var t spanner.NullTime
-							row.Columns(&t)
-							curtoken = t.Time.UTC().Format(time.RFC3339Nano)
+							err = row.Columns(&v, &t)
+							if err != nil {
+								return err
+							}
+
+							diff = v.Int64
+							tokenlocked = t.Time.UTC().Format(time.RFC3339Nano)
+							l.logger.Printf("diff=%v, token=%v", v.Int64, tokenlocked)
 						}
 
 						return reterr
 					})
 
-					if curtoken == "" {
-						l.logger.Printf("read token failed: %v", err)
-						break // switch
+					if err != nil {
+						l.logger.Println(err)
+						return
 					}
 
-					cts, err := l.db.ReadWriteTransaction(context.Background(), func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
-						nxtname := fmt.Sprintf("%v_%v", l.name, curtoken)
-						stmt := spanner.Statement{
-							SQL: fmt.Sprintf("insert %v (name) values ('%s')", l.table, nxtname),
-						}
+					if l.tokenString() != "" && l.tokenString() == tokenlocked {
+						l.logger.Println("leader active (me)")
+						atomic.StoreInt32(&l.leader, 1)
+						l.heartbeat()
+						return
+					}
 
-						_, err := txn.Update(ctx, stmt)
-						l.logger.Println("insert:", err, nxtname)
-						return err
-					})
+					if diff > 0 && diff < l.duration {
+						l.logger.Println("leader active (not me)")
+						atomic.StoreInt32(&l.leader, 0)
+						return
+					}
 
-					if err == nil {
-						token = cts.UTC().Format(time.RFC3339Nano)
-						_, err := l.db.ReadWriteTransaction(context.Background(), func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+					if initial {
+						// Attempt first ever lock; use insert instead of update. Only one client should be able to do this.
+						// The return commit timestamp will be our fencing token.
+						cts, err := l.db.ReadWriteTransaction(context.Background(), func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 							ts := "PENDING_COMMIT_TIMESTAMP()"
 							stmt := spanner.Statement{
-								SQL:    fmt.Sprintf("update %v set heartbeat = %v, token = @token where name = @name", l.table, ts),
-								Params: map[string]interface{}{"name": l.name, "token": cts},
+								SQL: fmt.Sprintf("insert %v (name, heartbeat, token) values ('%s', %v, %v)", l.table, l.name, ts, ts),
 							}
 
-							_, err := txn.Update(ctx, stmt)
+							n, err := txn.Update(ctx, stmt)
+							l.logger.Println("insert:", err, n)
 							return err
 						})
 
+						if err == nil {
+							l.setToken(&cts)
+							l.logger.Printf("leadertoken: %v", l.tokenString())
+							atomic.StoreInt32(&l.leader, 1)
+							return
+						}
+
+						l.logger.Printf("leader attempt failed: %v", err)
+						initial = false
+					}
+
+					if !initial {
+						// Read the current token and use it as suffix for the next lock name.
+						token, err := l.getTokenFromDb()
 						if err != nil {
-							l.logger.Println(err)
+							l.logger.Println("getTokenFromDb failed:", err)
+							return
+						}
+
+						if token == "" {
+							l.logger.Printf("read token failed: %v", err)
+							return
+						}
+
+						// Attempt to grab the next lock.
+						nxtcts, err := l.db.ReadWriteTransaction(context.Background(), func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+							nxtname := fmt.Sprintf("%v_%v", l.name, token)
+							stmt := spanner.Statement{
+								SQL: fmt.Sprintf("insert %v (name) values ('%s')", l.table, nxtname),
+							}
+
+							_, err := txn.Update(ctx, stmt)
+							l.logger.Println("insert:", err, nxtname)
+							return err
+						})
+
+						if err == nil {
+							// We got the lock. Attempt to update the current token to this commit timestamp.
+							_, err := l.db.ReadWriteTransaction(context.Background(), func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+								ts := "PENDING_COMMIT_TIMESTAMP()"
+								stmt := spanner.Statement{
+									SQL:    fmt.Sprintf("update %v set heartbeat = %v, token = @token where name = @name", l.table, ts),
+									Params: map[string]interface{}{"name": l.name, "token": nxtcts},
+								}
+
+								_, err := txn.Update(ctx, stmt)
+								return err
+							})
+
+							if err != nil {
+								l.logger.Println("update token failed:", err)
+								return
+							}
+
+							atomic.StoreInt32(&l.leader, 1)
+							l.setToken(&nxtcts)
 						}
 					}
-				}
+				}(count)
 			case <-quit.Done():
 				if len(done) > 0 {
 					done[0] <- nil
 				}
 
+				atomic.StoreInt32(&l.leader, 0)
 				return
 			}
 		}
@@ -195,7 +210,71 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 	return nil
 }
 
-func (l *Lock) HasLock() bool { return atomic.LoadInt32(&l.leader) == 1 }
+func (l *Lock) HasLock() (bool, string) {
+	token, err := l.getTokenFromDb()
+	if err != nil {
+		return false, ""
+	}
+
+	if token == l.tokenString() {
+		return true, token
+	}
+
+	return false, ""
+}
+
+func (l *Lock) tokenString() string {
+	l.mtx.Lock()
+	defer l.mtx.Unlock()
+	if l.token == nil {
+		return ""
+	}
+
+	return (*l.token).UTC().Format(time.RFC3339Nano)
+}
+
+func (l *Lock) setToken(v *time.Time) {
+	l.mtx.Lock()
+	defer l.mtx.Unlock()
+	l.token = v
+}
+
+func (l *Lock) getTokenFromDb() (string, error) {
+	var tkn string
+	_, err := l.db.ReadWriteTransaction(context.Background(), func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		stmt := spanner.Statement{
+			SQL:    fmt.Sprintf("select token from %v where name = @name", l.table),
+			Params: map[string]interface{}{"name": l.name},
+		}
+
+		var reterr error
+		iter := txn.Query(ctx, stmt)
+		defer iter.Stop()
+		for {
+			row, err := iter.Next()
+			if err == iterator.Done {
+				break
+			}
+
+			if err != nil {
+				reterr = err
+				break
+			}
+
+			var t spanner.NullTime
+			err = row.Columns(&t)
+			if err != nil {
+				return err
+			}
+
+			tkn = t.Time.UTC().Format(time.RFC3339Nano)
+		}
+
+		return reterr
+	})
+
+	return tkn, err
+}
 
 func (l *Lock) heartbeat() {
 	ctx := context.Background()
@@ -225,6 +304,7 @@ func New(db *spanner.Client, table, name string, o ...Option) *Lock {
 		table:    table,
 		name:     name,
 		id:       uuid.New().String(),
+		mtx:      &sync.Mutex{},
 		duration: 10000,
 	}
 
@@ -234,7 +314,7 @@ func New(db *spanner.Client, table, name string, o ...Option) *Lock {
 
 	if l.logger == nil {
 		prefix := fmt.Sprintf("[spindle][%v] ", l.id)
-		l.logger = log.New(os.Stdout, prefix, 0)
+		l.logger = log.New(os.Stdout, prefix, log.LstdFlags)
 	}
 
 	return l

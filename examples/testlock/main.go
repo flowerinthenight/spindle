@@ -28,7 +28,8 @@ func main() {
 	lock.Run(quit, done)
 
 	time.Sleep(time.Second * 20)
-	log.Println("HasLock:", lock.HasLock())
+	locked, token := lock.HasLock()
+	log.Println(">>>>> HasLock:", locked, token)
 	time.Sleep(time.Second * 20)
 	cancel()
 	<-done
