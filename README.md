@@ -19,15 +19,22 @@ This library doesn't use the usual "lock", "do protected work", "unlock" sequenc
 db, _ := spanner.NewClient(context.Background(), "your/database")
 defer db.Close()
 
+// Notify me when done.
 done := make(chan error, 1)
+
+// For cancellation.
 quit, cancel := context.WithCancel(context.Background())
+
+// Instantiate the lock object.
 lock := spindle.New(db, "locktable", "mylock", spindle.WithDuration(5000))
+
+// Start the main loop.
 lock.Run(quit, done)
 
 time.Sleep(time.Second * 20)
 
 locked, token := lock.HasLock()
-log.Println(">>>>> HasLock:", locked, token)
+log.Println("HasLock:", locked, token)
 
 time.Sleep(time.Second * 20)
 cancel()
