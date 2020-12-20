@@ -12,3 +12,5 @@ CREATE TABLE locktable (
 	token TIMESTAMP OPTIONS (allow_commit_timestamp=true),
 ) PRIMARY KEY (name)
 ```
+
+This library doesn't use the usual "lock", "do protected work", "unlock" sequence. Instead, after instantiating the lock object, you will call the `Run(...)` function which will continuously attempt to acquire a named lock until canceled. A `HasLock()` function is provided that returns true (along with the lock token) if the lock is successfully acquired.
