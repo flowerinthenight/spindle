@@ -13,7 +13,7 @@ CREATE TABLE locktable (
 ) PRIMARY KEY (name)
 ```
 
-This library doesn't use the usual "lock", "do protected work", "unlock" sequence. Instead, after instantiating the lock object, you will call the `Run(...)` function which will attempt to acquire a named lock at a regular interval (lease duration) until canceled. A `HasLock()` function is provided that returns true (along with the lock token) if the lock is successfully acquired. Something like:
+This library doesn't use the usual synchronous "lock", "do protected work", "unlock" sequence. Instead, after instantiating the lock object, you will call the `Run(...)` function which will attempt to acquire a named lock at a regular interval (lease duration) until canceled. A `HasLock()` function is provided that returns true (along with the lock token) if the lock is successfully acquired. Something like:
 
 ```go
 db, _ := spanner.NewClient(context.Background(), "your/database")
@@ -42,3 +42,14 @@ cancel()
 ```
 
 ## How it works
+The initial lock (the lock record doesn't exist in the table yet) is acquired by a process using an SQL `INSERT`. Once the record is created, all succeeding INSERTs will fail. In this phase, the locking process' transaction's returning commit timestamp will be equal to the timestamp stored in the `token` column. This will serve as our fencing token in situations where multiple processes somehow are able to acquire a lock. Using this token, the real lock holder will start sending heartbeats by updating the `heartbeat` column.
+
+When a lock is active, the other participating processes will detect if the lease has expired by checking the heartbeat against Spanner's current timestamp. If so (say, the active locker has crashed, or cancelled), another round of SQL `INSERT` is attempted, this time, using the name format `<lockname_current-lock-token>`. The process that gets the lock this time will then attempt to update the `token` column using its commit timestamp, thus, updating the fencing token. In the event that the original locker process recovers (if crashed), the latest token should invalidate its locking claim.
+
+A simple [code](./examples/simple/main.go) is provided to demonstrate the mechanism through logs. You can try running multiple binaries in multiple terminals or in a single terminal, like:
+
+```bash
+$ cd examples/simple/
+$ go build -v
+$ for num in 1 2 3; do ./simple &; done
+```
