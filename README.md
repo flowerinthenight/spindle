@@ -7,9 +7,9 @@ A [Spanner](https://cloud.google.com/spanner/)-based distributed locking library
 At the moment, the table needs to be created beforehand using the following DDL (`locktable` is just an example):
 ```SQL
 CREATE TABLE locktable (
-	name STRING(MAX) NOT NULL,
-	heartbeat TIMESTAMP OPTIONS (allow_commit_timestamp=true),
-	token TIMESTAMP OPTIONS (allow_commit_timestamp=true),
+    name STRING(MAX) NOT NULL,
+    heartbeat TIMESTAMP OPTIONS (allow_commit_timestamp=true),
+    token TIMESTAMP OPTIONS (allow_commit_timestamp=true),
 ) PRIMARY KEY (name)
 ```
 
@@ -40,3 +40,5 @@ time.Sleep(time.Second * 20)
 cancel()
 <-done
 ```
+
+## How it works
