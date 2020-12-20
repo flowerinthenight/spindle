@@ -70,14 +70,14 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 					var diff int64
 
 					// See if there is an active leased lock (could be us).
-					_, err := l.db.ReadWriteTransaction(context.Background(), func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+					err := func() error {
 						stmt := spanner.Statement{
 							SQL:    fmt.Sprintf("select timestamp_diff(current_timestamp(), heartbeat, millisecond), token from %v where name = @name", l.table),
 							Params: map[string]interface{}{"name": l.name},
 						}
 
 						var reterr error
-						iter := txn.Query(ctx, stmt)
+						iter := l.db.Single().Query(context.Background(), stmt)
 						defer iter.Stop()
 						for {
 							row, err := iter.Next()
@@ -103,7 +103,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 						}
 
 						return reterr
-					})
+					}()
 
 					if err != nil {
 						l.logger.Println(err)
@@ -240,40 +240,34 @@ func (l *Lock) setToken(v *time.Time) {
 }
 
 func (l *Lock) getTokenFromDb() (string, error) {
-	var tkn string
-	_, err := l.db.ReadWriteTransaction(context.Background(), func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
-		stmt := spanner.Statement{
-			SQL:    fmt.Sprintf("select token from %v where name = @name", l.table),
-			Params: map[string]interface{}{"name": l.name},
+	var token string
+	stmt := spanner.Statement{
+		SQL:    fmt.Sprintf("select token from %v where name = @name", l.table),
+		Params: map[string]interface{}{"name": l.name},
+	}
+
+	iter := l.db.Single().Query(context.Background(), stmt)
+	defer iter.Stop()
+	for {
+		row, err := iter.Next()
+		if err == iterator.Done {
+			break
 		}
 
-		var reterr error
-		iter := txn.Query(ctx, stmt)
-		defer iter.Stop()
-		for {
-			row, err := iter.Next()
-			if err == iterator.Done {
-				break
-			}
-
-			if err != nil {
-				reterr = err
-				break
-			}
-
-			var t spanner.NullTime
-			err = row.Columns(&t)
-			if err != nil {
-				return err
-			}
-
-			tkn = t.Time.UTC().Format(time.RFC3339Nano)
+		if err != nil {
+			return "", err
 		}
 
-		return reterr
-	})
+		var t spanner.NullTime
+		err = row.Columns(&t)
+		if err != nil {
+			return "", err
+		}
 
-	return tkn, err
+		token = t.Time.UTC().Format(time.RFC3339Nano)
+	}
+
+	return token, nil
 }
 
 func (l *Lock) heartbeat() {
