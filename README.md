@@ -25,10 +25,10 @@ done := make(chan error, 1)
 // For cancellation.
 quit, cancel := context.WithCancel(context.Background())
 
-// Instantiate the lock object using a 5s lease duration.
+// Instantiate the lock object using a 5s lease duration using locktable above.
 lock := spindle.New(db, "locktable", "mylock", spindle.WithDuration(5000))
 
-// Start the main loop.
+// Start the main loop, async.
 lock.Run(quit, done)
 
 time.Sleep(time.Second * 20)
