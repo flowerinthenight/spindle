@@ -18,6 +18,13 @@ type Option interface {
 	Apply(*Lock)
 }
 
+type withId string
+
+func (w withId) Apply(o *Lock) { o.id = string(w) }
+
+// WithId sets this instance's unique id.
+func WithId(v string) Option { return withId(v) }
+
 type withDuration int64
 
 func (w withDuration) Apply(o *Lock) { o.duration = int64(w) }
