@@ -46,6 +46,7 @@ type Lock struct {
 	id       string // unique id for this instance
 	duration int64  // lock duration in ms
 	leader   int32  // 1 = leader, 0 = !leader
+	iter     int64
 	token    *time.Time
 	mtx      *sync.Mutex
 	logger   *log.Logger
@@ -60,21 +61,20 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 	go func() {
 		initial := true
 		var active int32
-		var count int64
 
 		for {
 			select {
 			case <-ticker.C:
-				count++
 				if atomic.LoadInt32(&active) == 1 {
 					continue
 				}
 
-				go func(n int64) {
+				go func() {
 					atomic.StoreInt32(&active, 1)
 					defer func(begin time.Time) {
+						l.logger.Printf(">>> iter=%v, duration=%v", l.Iterations(), time.Since(begin))
 						atomic.StoreInt32(&active, 0)
-						l.logger.Printf(">>> iter=%v, duration=%v", n, time.Since(begin))
+						atomic.AddInt64(&l.iter, 1)
 					}(time.Now())
 
 					var tokenlocked string
@@ -206,7 +206,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 							l.setToken(&nxtcts)
 						}
 					}
-				}(count)
+				}()
 			case <-quit.Done():
 				if len(done) > 0 {
 					done[0] <- nil
@@ -225,15 +225,18 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 func (l *Lock) HasLock() (bool, string) {
 	token, err := l.getTokenFromDb()
 	if err != nil {
-		return false, ""
+		return false, token
 	}
 
 	if token == l.tokenString() {
 		return true, token
 	}
 
-	return false, ""
+	return false, token
 }
+
+// Iterations returns the number of iterations done by the main loop.
+func (l *Lock) Iterations() int64 { return atomic.LoadInt64(&l.iter) }
 
 func (l *Lock) tokenString() string {
 	l.mtx.Lock()
