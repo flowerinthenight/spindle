@@ -235,6 +235,9 @@ func (l *Lock) HasLock() (bool, string) {
 	return false, token
 }
 
+// Duration returns the duration in main loop in milliseconds.
+func (l *Lock) Duration() int64 { return l.duration }
+
 // Iterations returns the number of iterations done by the main loop.
 func (l *Lock) Iterations() int64 { return atomic.LoadInt64(&l.iter) }
 
