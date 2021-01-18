@@ -77,45 +77,8 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 						atomic.AddInt64(&l.iter, 1)
 					}(time.Now())
 
-					var tokenlocked string
-					var diff int64
-
-					// See if there is an active leased lock (could be us).
-					err := func() error {
-						stmt := spanner.Statement{
-							SQL:    fmt.Sprintf("select timestamp_diff(current_timestamp(), heartbeat, millisecond), token from %v where name = @name", l.table),
-							Params: map[string]interface{}{"name": l.name},
-						}
-
-						var reterr error
-						iter := l.db.Single().Query(context.Background(), stmt)
-						defer iter.Stop()
-						for {
-							row, err := iter.Next()
-							if err == iterator.Done {
-								break
-							}
-
-							if err != nil {
-								reterr = err
-								break
-							}
-
-							var v spanner.NullInt64
-							var t spanner.NullTime
-							err = row.Columns(&v, &t)
-							if err != nil {
-								return err
-							}
-
-							diff = v.Int64
-							tokenlocked = t.Time.UTC().Format(time.RFC3339Nano)
-							l.logger.Printf("diff=%v, token=%v", v.Int64, tokenlocked)
-						}
-
-						return reterr
-					}()
-
+					// See if there is an active leased lock (could be us, could be somebody else).
+					tokenlocked, diff, err := l.checkLock()
 					if err != nil {
 						l.logger.Println(err)
 						return
@@ -255,6 +218,48 @@ func (l *Lock) setToken(v *time.Time) {
 	l.mtx.Lock()
 	defer l.mtx.Unlock()
 	l.token = v
+}
+
+func (l *Lock) checkLock() (string, int64, error) {
+	var tokenlocked string
+	var diff int64
+
+	err := func() error {
+		stmt := spanner.Statement{
+			SQL:    fmt.Sprintf("select timestamp_diff(current_timestamp(), heartbeat, millisecond), token from %v where name = @name", l.table),
+			Params: map[string]interface{}{"name": l.name},
+		}
+
+		var reterr error
+		iter := l.db.Single().Query(context.Background(), stmt)
+		defer iter.Stop()
+		for {
+			row, err := iter.Next()
+			if err == iterator.Done {
+				break
+			}
+
+			if err != nil {
+				reterr = err
+				break
+			}
+
+			var v spanner.NullInt64
+			var t spanner.NullTime
+			err = row.Columns(&v, &t)
+			if err != nil {
+				return err
+			}
+
+			diff = v.Int64
+			tokenlocked = t.Time.UTC().Format(time.RFC3339Nano)
+			l.logger.Printf("diff=%v, token=%v", v.Int64, tokenlocked)
+		}
+
+		return reterr
+	}()
+
+	return tokenlocked, diff, err
 }
 
 func (l *Lock) getTokenFromDb() (string, error) {
