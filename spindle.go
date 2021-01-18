@@ -66,7 +66,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 		var active1 int32
 		var active2 int32
 
-		checkLock := func() bool {
+		locked := func() bool {
 			// See if there is an active leased lock (could be us, could be somebody else).
 			tokenlocked, diff, err := l.checkLock()
 			if err != nil {
@@ -105,7 +105,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 					}(time.Now())
 
 					atomic.StoreInt32(&active1, 1)
-					checkLock()
+					locked()
 				}()
 			case <-ticker2.C: // duration heartbeat
 				if atomic.LoadInt32(&active2) == 1 {
@@ -120,7 +120,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 					}(time.Now())
 
 					atomic.StoreInt32(&active2, 1)
-					if yes := checkLock(); yes {
+					if yes := locked(); yes {
 						return
 					}
 
