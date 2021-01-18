@@ -55,25 +55,55 @@ type Lock struct {
 // Run starts the main lock loop which can be canceled using the input context. You can provide
 // an optional 'done' channel if you want to be notified when the loop is done.
 func (l *Lock) Run(ctx context.Context, done ...chan error) error {
-	ticker := time.NewTicker(time.Millisecond * time.Duration(l.duration))
+	// Two heartbeats per duration. This will prevent unnecessary lock changes just because of
+	// delayed heartbeat updates, which would cause some diffs to be slightly beyond 'duration'.
+	ticker1 := time.NewTicker(time.Millisecond * time.Duration(l.duration/2))
+	ticker2 := time.NewTicker(time.Millisecond * time.Duration(l.duration))
 	quit := context.WithValue(ctx, struct{}{}, nil)
 
 	go func() {
 		initial := true
-		var active int32
+		var active1 int32
+		var active2 int32
 
 		for {
 			select {
-			case <-ticker.C:
-				if atomic.LoadInt32(&active) == 1 {
+			case <-ticker1.C: // middle heartbeat
+				if atomic.LoadInt32(&active1) == 1 {
 					continue
 				}
 
 				go func() {
-					atomic.StoreInt32(&active, 1)
+					atomic.StoreInt32(&active1, 1)
 					defer func(begin time.Time) {
-						l.logger.Printf(">>> iter=%v, duration=%v", l.Iterations(), time.Since(begin))
-						atomic.StoreInt32(&active, 0)
+						l.logger.Printf("[1/2] duration=%v", time.Since(begin))
+						atomic.StoreInt32(&active1, 0)
+					}(time.Now())
+
+					// See if there is an active leased lock (could be us, could be somebody else).
+					tokenlocked, _, err := l.checkLock()
+					if err != nil {
+						l.logger.Println(err)
+						return
+					}
+
+					if l.tokenString() != "" && l.tokenString() == tokenlocked {
+						l.logger.Println("leader active (me)")
+						atomic.StoreInt32(&l.leader, 1)
+						l.heartbeat()
+						return
+					}
+				}()
+			case <-ticker2.C: // duration heartbeat
+				if atomic.LoadInt32(&active2) == 1 {
+					continue
+				}
+
+				go func() {
+					atomic.StoreInt32(&active2, 1)
+					defer func(begin time.Time) {
+						l.logger.Printf("[2/2] duration=%v, iter=%v", time.Since(begin), l.Iterations())
+						atomic.StoreInt32(&active2, 0)
 						atomic.AddInt64(&l.iter, 1)
 					}(time.Now())
 
@@ -87,7 +117,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 					if l.tokenString() != "" && l.tokenString() == tokenlocked {
 						l.logger.Println("leader active (me)")
 						atomic.StoreInt32(&l.leader, 1)
-						l.heartbeat()
+						l.heartbeat(true)
 						return
 					}
 
@@ -293,7 +323,7 @@ func (l *Lock) getTokenFromDb() (string, error) {
 	return token, nil
 }
 
-func (l *Lock) heartbeat() {
+func (l *Lock) heartbeat(clean ...bool) {
 	ctx := context.Background()
 	l.db.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		stmt := spanner.Statement{
@@ -304,13 +334,18 @@ func (l *Lock) heartbeat() {
 		_, err := txn.Update(ctx, stmt)
 		l.logger.Println("heartbeat:", err, l.id)
 
-		delname := fmt.Sprintf("%v_", l.name)
-		stmt = spanner.Statement{
-			SQL:    fmt.Sprintf("delete from %v where starts_with(name, '%v')", l.table, delname),
-			Params: map[string]interface{}{"name": l.name},
+		if len(clean) > 0 {
+			if clean[0] {
+				delname := fmt.Sprintf("%v_", l.name)
+				stmt = spanner.Statement{
+					SQL:    fmt.Sprintf("delete from %v where starts_with(name, '%v')", l.table, delname),
+					Params: map[string]interface{}{"name": l.name},
+				}
+
+				txn.Update(ctx, stmt)
+			}
 		}
 
-		txn.Update(ctx, stmt)
 		return err
 	})
 }
