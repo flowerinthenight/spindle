@@ -66,6 +66,31 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 		var active1 int32
 		var active2 int32
 
+		checkLock := func() bool {
+			// See if there is an active leased lock (could be us, could be somebody else).
+			tokenlocked, diff, err := l.checkLock()
+			if err != nil {
+				l.logger.Println(err)
+				return true // err on safer side
+			}
+
+			if l.tokenString() != "" && l.tokenString() == tokenlocked {
+				l.logger.Println("leader active (me)")
+				atomic.StoreInt32(&l.leader, 1)
+				l.heartbeat()
+				return true
+			}
+
+			if diff > 0 && diff < l.duration {
+				l.logger.Println("leader active (not me)")
+				atomic.StoreInt32(&l.leader, 0)
+				return true
+			}
+
+			// Lock available.
+			return false
+		}
+
 		for {
 			select {
 			case <-ticker1.C: // middle heartbeat
@@ -74,25 +99,13 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 				}
 
 				go func() {
-					atomic.StoreInt32(&active1, 1)
 					defer func(begin time.Time) {
 						l.logger.Printf("[1/2] duration=%v", time.Since(begin))
 						atomic.StoreInt32(&active1, 0)
 					}(time.Now())
 
-					// See if there is an active leased lock (could be us, could be somebody else).
-					tokenlocked, _, err := l.checkLock()
-					if err != nil {
-						l.logger.Println(err)
-						return
-					}
-
-					if l.tokenString() != "" && l.tokenString() == tokenlocked {
-						l.logger.Println("leader active (me)")
-						atomic.StoreInt32(&l.leader, 1)
-						l.heartbeat()
-						return
-					}
+					atomic.StoreInt32(&active1, 1)
+					checkLock()
 				}()
 			case <-ticker2.C: // duration heartbeat
 				if atomic.LoadInt32(&active2) == 1 {
@@ -100,30 +113,14 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 				}
 
 				go func() {
-					atomic.StoreInt32(&active2, 1)
 					defer func(begin time.Time) {
 						l.logger.Printf("[2/2] duration=%v, iter=%v", time.Since(begin), l.Iterations())
 						atomic.StoreInt32(&active2, 0)
 						atomic.AddInt64(&l.iter, 1)
 					}(time.Now())
 
-					// See if there is an active leased lock (could be us, could be somebody else).
-					tokenlocked, diff, err := l.checkLock()
-					if err != nil {
-						l.logger.Println(err)
-						return
-					}
-
-					if l.tokenString() != "" && l.tokenString() == tokenlocked {
-						l.logger.Println("leader active (me)")
-						atomic.StoreInt32(&l.leader, 1)
-						l.heartbeat(true)
-						return
-					}
-
-					if diff > 0 && diff < l.duration {
-						l.logger.Println("leader active (not me)")
-						atomic.StoreInt32(&l.leader, 0)
+					atomic.StoreInt32(&active2, 1)
+					if yes := checkLock(); yes {
 						return
 					}
 
