@@ -66,7 +66,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 		var active1 int32
 		var active2 int32
 
-		locked := func() bool {
+		locked := func(clean ...bool) bool {
 			// See if there is an active leased lock (could be us, could be somebody else).
 			tokenlocked, diff, err := l.checkLock()
 			if err != nil {
@@ -77,7 +77,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 			if l.tokenString() != "" && l.tokenString() == tokenlocked {
 				l.logger.Println("leader active (me)")
 				atomic.StoreInt32(&l.leader, 1)
-				l.heartbeat()
+				l.heartbeat(clean...)
 				return true
 			}
 
@@ -120,7 +120,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 					}(time.Now())
 
 					atomic.StoreInt32(&active2, 1)
-					if yes := locked(); yes {
+					if yes := locked(true); yes {
 						return
 					}
 
