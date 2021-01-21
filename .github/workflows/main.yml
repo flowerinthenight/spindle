@@ -35,12 +35,11 @@ jobs:
     - name: Build
       run: go build -v ./...
 
-    - name: Setup gcloud
-      uses: actions-hub/gcloud@master
-      with:
-        args: version
-
     - name: Test
       run: |
-        gcloud version
+        curl -O https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-sdk-324.0.0-linux-x86_64.tar.gz
+        tar xvzf google-cloud-sdk-324.0.0-linux-x86_64.tar.gz
+        ./google-cloud-sdk/install.sh --quiet
+        gcloud config set auth/disable_credentials true
+        gcloud config set api_endpoint_overrides/spanner http://localhost:9020/
         go test -v ./...
