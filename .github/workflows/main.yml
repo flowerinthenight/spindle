@@ -43,7 +43,7 @@ jobs:
         gcloud config configurations create emulator
         gcloud config set auth/disable_credentials true
         gcloud config set project test-project
-        gcloud config set api_endpoint_overrides/spanner http://localhost:9020/
-        export SPANNER_EMULATOR_HOST="localhost:9010"
+        gcloud config set api_endpoint_overrides/spanner http://spanner:9020/
+        export SPANNER_EMULATOR_HOST="spanner:9010"
         gcloud spanner instances create test-instance --config=emulator-config --description="Test Instance" --nodes=1
         go test -v ./...
