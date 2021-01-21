@@ -42,4 +42,5 @@ jobs:
         ./google-cloud-sdk/install.sh --quiet
         gcloud config set auth/disable_credentials true
         gcloud config set api_endpoint_overrides/spanner http://localhost:9020/
+        gcloud spanner instances list
         go test -v ./...
