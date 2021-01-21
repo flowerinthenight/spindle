@@ -35,11 +35,13 @@ jobs:
     - name: Build
       run: go build -v ./...
 
-    - name: Test
+    - name: Setup gcloud
       uses: actions-hub/gcloud@master
       env:
       with:
         args: version
+
+    - name: Test
       run: |
         gcloud version
         go test -v ./...
