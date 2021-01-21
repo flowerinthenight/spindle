@@ -41,6 +41,7 @@ jobs:
         tar xvzf google-cloud-sdk-324.0.0-linux-x86_64.tar.gz
         ./google-cloud-sdk/install.sh --quiet
         gcloud config configurations create emulator
+        gcloud config configurations activate emulator
         gcloud config set auth/disable_credentials true
         gcloud config set api_endpoint_overrides/spanner http://localhost:9020/
         gcloud spanner instances list
