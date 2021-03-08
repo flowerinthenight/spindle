@@ -13,7 +13,7 @@ CREATE TABLE locktable (
 ) PRIMARY KEY (name)
 ```
 
-This library doesn't use the usual synchronous "lock", "do protected work", "unlock" sequence. For that, you can check out [dlock](https://github.com/flowerinthenight/dlock)'s spindle reference implementation. Instead, after instantiating the lock object, you will call the `Run(...)` function which will attempt to acquire a named lock at a regular interval (lease duration) until cancelled. A `HasLock()` function is provided that returns true (along with the lock token) if the lock is successfully acquired. Something like:
+This library doesn't use the usual synchronous "lock", "do protected work", "unlock" sequence. For that, you can check out the include [lock](./lock) package. Instead, after instantiating the lock object, you will call the `Run(...)` function which will attempt to acquire a named lock at a regular interval (lease duration) until cancelled. A `HasLock()` function is provided that returns true (along with the lock token) if the lock is successfully acquired. Something like:
 
 ```go
 db, _ := spanner.NewClient(context.Background(), "your/database")
