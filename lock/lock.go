@@ -2,6 +2,7 @@ package lock
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"sync/atomic"
 	"time"
@@ -62,13 +63,19 @@ func (l *SpindleLock) Lock(ctx context.Context) error {
 	l.lock.Run(l.quit, l.done)
 
 	// Block until we get the lock.
+loop:
 	for {
-		hl, _ := l.lock.HasLock()
-		if l.lock.Iterations() > 1 && hl {
-			break
-		}
+		select {
+		case <-l.quit.Done():
+			return fmt.Errorf("timeout")
+		default:
+			hl, _ := l.lock.HasLock()
+			if l.lock.Iterations() > 1 && hl {
+				break loop
+			}
 
-		time.Sleep(time.Millisecond * 500)
+			time.Sleep(time.Millisecond * 500)
+		}
 	}
 
 	atomic.StoreInt32(&l.locked, 1)
