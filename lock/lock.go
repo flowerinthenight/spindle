@@ -54,15 +54,14 @@ type SpindleLock struct {
 
 func (l *SpindleLock) Lock(ctx context.Context) error {
 	if atomic.LoadInt32(&l.locked) == 1 {
-		// Lock only once for this instance.
-		return nil
+		return nil // lock only once for this instance
 	}
 
 	l.quit, l.cancel = context.WithCancel(ctx)
 	l.done = make(chan error, 1)
 	l.lock.Run(l.quit, l.done)
 
-	// Block until we get the lock.
+	// Block until we get the lock, or ctx is cancelled or timed out.
 loop:
 	for {
 		select {
