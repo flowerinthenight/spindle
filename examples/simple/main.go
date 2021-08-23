@@ -15,7 +15,7 @@ func main() {
 	// GOOGLE_APPLICATION_CREDENTIALS environment variable.
 	db, err := spanner.NewClient(
 		context.Background(),
-		"projects/mobingi-main/instances/alphaus-prod/databases/main",
+		"projects/{project}/instances/{instance}/databases/{db}",
 	)
 
 	if err != nil {
