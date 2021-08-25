@@ -11,6 +11,10 @@ import (
 	"github.com/flowerinthenight/spindle"
 )
 
+var (
+	ErrTimeout = fmt.Errorf("timeout")
+)
+
 type SpindleLockOptions struct {
 	Client   *spanner.Client // Spanner client
 	Table    string          // Spanner table name
@@ -66,7 +70,7 @@ loop:
 	for {
 		select {
 		case <-l.quit.Done():
-			return fmt.Errorf("timeout")
+			return ErrTimeout
 		default:
 			hl, _ := l.lock.HasLock()
 			if l.lock.Iterations() > 1 && hl {
