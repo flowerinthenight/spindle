@@ -124,9 +124,10 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 						return
 					}
 
+					// Attempt first ever lock; use insert instead of update. Only one client should be able to do this.
+					// The return commit timestamp will be our fencing token.
 					if initial {
-						// Attempt first ever lock; use insert instead of update. Only one client should be able to do this.
-						// The return commit timestamp will be our fencing token.
+						prefix := "[initial]"
 						cts, err := l.db.ReadWriteTransaction(context.Background(), func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 							ts := "PENDING_COMMIT_TIMESTAMP()"
 							stmt := spanner.Statement{
@@ -134,31 +135,32 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 							}
 
 							n, err := txn.Update(ctx, stmt)
-							l.logger.Println("insert:", err, n)
+							l.logger.Printf("%v insert (n=%v): %v", prefix, n, err)
 							return err
 						})
 
 						if err == nil {
 							l.setToken(&cts)
-							l.logger.Printf("leadertoken: %v", l.tokenString())
+							l.logger.Printf("%v leadertoken: %v", prefix, l.tokenString())
 							atomic.StoreInt32(&l.leader, 1)
 							return
 						}
 
-						l.logger.Printf("leader attempt failed: %v", err)
+						l.logger.Printf("%v leader attempt failed: %v", prefix, err)
 						initial = false
 					}
 
+					// For the succeeding lock attempts.
 					if !initial {
-						// Read the current token and use it as suffix for the next lock name.
+						prefix := "[next]"
 						token, err := l.getTokenFromDb()
 						if err != nil {
-							l.logger.Println("getTokenFromDb failed:", err)
+							l.logger.Printf("%v getTokenFromDb failed: %v", prefix, err)
 							return
 						}
 
 						if token == "" {
-							l.logger.Printf("read token failed: %v", err)
+							l.logger.Printf("%v read token failed: empty", prefix)
 							return
 						}
 
@@ -170,7 +172,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 							}
 
 							_, err := txn.Update(ctx, stmt)
-							l.logger.Println("insert:", err, nxtname)
+							l.logger.Printf("%v insert (name=%v): %v", prefix, nxtname, err)
 							return err
 						})
 
@@ -188,7 +190,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 							})
 
 							if err != nil {
-								l.logger.Println("update token failed:", err)
+								l.logger.Printf("%v update token failed: %v", prefix, err)
 								return
 							}
 
