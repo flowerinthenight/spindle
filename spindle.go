@@ -233,6 +233,9 @@ func (l *Lock) Duration() int64 { return l.duration }
 // Iterations returns the number of iterations done by the main loop.
 func (l *Lock) Iterations() int64 { return atomic.LoadInt64(&l.iter) }
 
+// Client returns the Spanner client.
+func (l *Lock) Client() *spanner.Client { return l.db }
+
 func (l *Lock) tokenString() string {
 	l.mtx.Lock()
 	defer l.mtx.Unlock()
