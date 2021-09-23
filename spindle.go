@@ -344,7 +344,7 @@ func (l *Lock) heartbeat(clean ...bool) {
 		}
 
 		_, err := txn.Update(ctx, stmt)
-		l.logger.Println("heartbeat:", err, l.id)
+		l.logger.Printf("heartbeat: id=%v, err=%v", l.id, err)
 
 		if len(clean) > 0 {
 			if clean[0] {
