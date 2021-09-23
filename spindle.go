@@ -131,11 +131,11 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 						cts, err := l.db.ReadWriteTransaction(context.Background(), func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 							ts := "PENDING_COMMIT_TIMESTAMP()"
 							stmt := spanner.Statement{
-								SQL: fmt.Sprintf("insert %v (name, heartbeat, token) values ('%s', %v, %v)", l.table, l.name, ts, ts),
+								SQL: fmt.Sprintf("insert %v (name, heartbeat, token, writer) values ('%s', %v, %v, '%v')", l.table, l.name, ts, ts, l.id),
 							}
 
 							n, err := txn.Update(ctx, stmt)
-							l.logger.Printf("%v insert (n=%v): %v", prefix, n, err)
+							l.logger.Printf("%v insert: n=%v, err=%v", prefix, n, err)
 							return err
 						})
 
@@ -153,7 +153,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 					// For the succeeding lock attempts.
 					if !initial {
 						prefix := "[next]"
-						token, err := l.getTokenFromDb()
+						token, _, err := l.getCurrentTokenAndId()
 						if err != nil {
 							l.logger.Printf("%v getTokenFromDb failed: %v", prefix, err)
 							return
@@ -181,8 +181,8 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 							_, err := l.db.ReadWriteTransaction(context.Background(), func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 								ts := "PENDING_COMMIT_TIMESTAMP()"
 								stmt := spanner.Statement{
-									SQL:    fmt.Sprintf("update %v set heartbeat = %v, token = @token where name = @name", l.table, ts),
-									Params: map[string]interface{}{"name": l.name, "token": nxtcts},
+									SQL:    fmt.Sprintf("update %v set heartbeat = %v, token = @token, writer = @writer where name = @name", l.table, ts),
+									Params: map[string]interface{}{"name": l.name, "token": nxtcts, "writer": l.id},
 								}
 
 								_, err := txn.Update(ctx, stmt)
@@ -215,7 +215,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 
 // HasLock returns true if this instance got the lock, together with the lock token.
 func (l *Lock) HasLock() (bool, string) {
-	token, err := l.getTokenFromDb()
+	token, _, err := l.getCurrentTokenAndId()
 	if err != nil {
 		return false, token
 	}
@@ -225,6 +225,12 @@ func (l *Lock) HasLock() (bool, string) {
 	}
 
 	return false, token
+}
+
+// Leader returns the current leader id.
+func (l *Lock) Leader() (string, error) {
+	_, w, err := l.getCurrentTokenAndId()
+	return w, err
 }
 
 // Duration returns the duration in main loop in milliseconds.
@@ -294,10 +300,10 @@ func (l *Lock) checkLock() (string, int64, error) {
 	return tokenlocked, diff, err
 }
 
-func (l *Lock) getTokenFromDb() (string, error) {
-	var token string
+func (l *Lock) getCurrentTokenAndId() (string, string, error) {
+	var token, writer string
 	stmt := spanner.Statement{
-		SQL:    fmt.Sprintf("select token from %v where name = @name", l.table),
+		SQL:    fmt.Sprintf("select token, writer from %v where name = @name", l.table),
 		Params: map[string]interface{}{"name": l.name},
 	}
 
@@ -310,19 +316,23 @@ func (l *Lock) getTokenFromDb() (string, error) {
 		}
 
 		if err != nil {
-			return "", err
+			return "", "", err
 		}
 
 		var t spanner.NullTime
-		err = row.Columns(&t)
+		var w spanner.NullString
+		err = row.Columns(&t, &w)
 		if err != nil {
-			return "", err
+			return "", "", err
 		}
 
 		token = t.Time.UTC().Format(time.RFC3339Nano)
+		if w.Valid {
+			writer = w.String()
+		}
 	}
 
-	return token, nil
+	return token, writer, nil
 }
 
 func (l *Lock) heartbeat(clean ...bool) {
