@@ -155,7 +155,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 						prefix := "[next]"
 						token, _, err := l.getCurrentTokenAndId()
 						if err != nil {
-							l.logger.Printf("%v getTokenFromDb failed: %v", prefix, err)
+							l.logger.Printf("%v getCurrentTokenAndId failed: %v", prefix, err)
 							return
 						}
 
@@ -171,8 +171,8 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 								SQL: fmt.Sprintf("insert %v (name) values ('%s')", l.table, nxtname),
 							}
 
-							_, err := txn.Update(ctx, stmt)
-							l.logger.Printf("%v insert (name=%v): %v", prefix, nxtname, err)
+							n, err := txn.Update(ctx, stmt)
+							l.logger.Printf("%v insert: name=%v, n=%v, err=%v", prefix, nxtname, n, err)
 							return err
 						})
 
@@ -378,7 +378,7 @@ func New(db *spanner.Client, table, name string, o ...Option) *Lock {
 	}
 
 	if l.logger == nil {
-		prefix := fmt.Sprintf("[spindle][%v] ", l.id)
+		prefix := fmt.Sprintf("[spindle/%v] ", l.id)
 		l.logger = log.New(os.Stdout, prefix, log.LstdFlags)
 	}
 
