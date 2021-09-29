@@ -5,10 +5,10 @@ db, _ := spanner.NewClient(ctx, "your/database")
 defer db.Close()
 
 lock := dlock.NewSpindleLock(&dlock.SpindleLockOptions{
-  Client:   db,
-  Table:    "testlease",
-  Name:     "dlock",
-  Duration: 1000,
+    Client:   db,
+    Table:    "testlease",
+    Name:     "dlock",
+    Duration: 1000,
 })
 
 start := time.Now()
