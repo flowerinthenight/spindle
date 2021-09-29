@@ -81,10 +81,23 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 				return true
 			}
 
-			if diff > 0 && diff < l.duration {
-				l.logger.Println("leader active (not me)")
-				atomic.StoreInt32(&l.leader, 0)
-				return true
+			if diff > 0 {
+				var ok bool
+				switch {
+				case diff <= l.duration: // ideally
+					ok = true
+				case diff > l.duration: // 3% should be okay
+					p03 := float64(l.duration) * 0.03
+					over := float64((diff - l.duration))
+					ok = over <= p03
+					l.logger.Printf("[dbg] 3%%=%v, over=%v", p03, over)
+				}
+
+				if ok {
+					l.logger.Println("leader active (not me)")
+					atomic.StoreInt32(&l.leader, 0)
+					return true
+				}
 			}
 
 			// Lock available.
