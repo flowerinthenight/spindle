@@ -68,13 +68,13 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 
 		locked := func(clean ...bool) bool {
 			// See if there is an active leased lock (could be us, could be somebody else).
-			tokenlocked, diff, err := l.checkLock()
+			tokenLocked, diff, err := l.checkLock()
 			if err != nil {
 				l.logger.Println(err)
 				return true // err on safer side
 			}
 
-			if l.tokenString() != "" && l.tokenString() == tokenlocked {
+			if l.tokenString() != "" && l.tokenString() == tokenLocked {
 				l.logger.Println("leader active (me)")
 				atomic.StoreInt32(&l.leader, 1)
 				l.heartbeat(clean...)
@@ -205,6 +205,8 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 				}
 
 				atomic.StoreInt32(&l.leader, 0)
+				ticker1.Stop()
+				ticker2.Stop()
 				return
 			}
 		}
@@ -259,7 +261,7 @@ func (l *Lock) setToken(v *time.Time) {
 }
 
 func (l *Lock) checkLock() (string, int64, error) {
-	var tokenlocked string
+	var tokenLocked string
 	var diff int64
 
 	err := func() error {
@@ -268,7 +270,7 @@ func (l *Lock) checkLock() (string, int64, error) {
 			Params: map[string]interface{}{"name": l.name},
 		}
 
-		var reterr error
+		var retErr error
 		iter := l.db.Single().Query(context.Background(), stmt)
 		defer iter.Stop()
 		for {
@@ -278,7 +280,7 @@ func (l *Lock) checkLock() (string, int64, error) {
 			}
 
 			if err != nil {
-				reterr = err
+				retErr = err
 				break
 			}
 
@@ -290,14 +292,14 @@ func (l *Lock) checkLock() (string, int64, error) {
 			}
 
 			diff = v.Int64
-			tokenlocked = t.Time.UTC().Format(time.RFC3339Nano)
-			l.logger.Printf("diff=%v, token=%v", v.Int64, tokenlocked)
+			tokenLocked = t.Time.UTC().Format(time.RFC3339Nano)
+			l.logger.Printf("diff=%v, token=%v", v.Int64, tokenLocked)
 		}
 
-		return reterr
+		return retErr
 	}()
 
-	return tokenlocked, diff, err
+	return tokenLocked, diff, err
 }
 
 func (l *Lock) getCurrentTokenAndId() (string, string, error) {
@@ -364,7 +366,7 @@ func (l *Lock) heartbeat(clean ...bool) {
 
 // New returns a lock object with a default of 10s lease duration.
 func New(db *spanner.Client, table, name string, o ...Option) *Lock {
-	l := &Lock{
+	lock := &Lock{
 		db:       db,
 		table:    table,
 		name:     name,
@@ -374,13 +376,13 @@ func New(db *spanner.Client, table, name string, o ...Option) *Lock {
 	}
 
 	for _, opt := range o {
-		opt.Apply(l)
+		opt.Apply(lock)
 	}
 
-	if l.logger == nil {
-		prefix := fmt.Sprintf("[spindle/%v] ", l.id)
-		l.logger = log.New(os.Stdout, prefix, log.LstdFlags)
+	if lock.logger == nil {
+		prefix := fmt.Sprintf("[spindle/%v] ", lock.id)
+		lock.logger = log.New(os.Stdout, prefix, log.LstdFlags)
 	}
 
-	return l
+	return lock
 }
