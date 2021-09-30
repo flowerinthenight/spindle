@@ -59,6 +59,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 	// delayed heartbeat updates, which would cause some diffs to be slightly beyond 'duration'.
 	ticker1 := time.NewTicker(time.Millisecond * time.Duration(l.duration/2))
 	ticker2 := time.NewTicker(time.Millisecond * time.Duration(l.duration))
+	first := make(chan struct{}, 1) // immediate
 	quit := context.WithValue(ctx, struct{}{}, nil)
 
 	go func() {
@@ -104,6 +105,94 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 			return false
 		}
 
+		attemptLeader := func() {
+			defer func(begin time.Time) {
+				l.logger.Printf("[2/2] duration=%v, iter=%v", time.Since(begin), l.Iterations())
+				atomic.StoreInt32(&active2, 0)
+				atomic.AddInt64(&l.iter, 1)
+			}(time.Now())
+
+			atomic.StoreInt32(&active2, 1)
+			if yes := locked(true); yes {
+				return
+			}
+
+			// Attempt first ever lock; use insert instead of update. Only one client should be able to do this.
+			// The return commit timestamp will be our fencing token.
+			if initial {
+				prefix := "[initial]"
+				cts, err := l.db.ReadWriteTransaction(context.Background(), func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+					ts := "PENDING_COMMIT_TIMESTAMP()"
+					stmt := spanner.Statement{
+						SQL: fmt.Sprintf("insert %v (name, heartbeat, token, writer) values ('%s', %v, %v, '%v')", l.table, l.name, ts, ts, l.id),
+					}
+
+					n, err := txn.Update(ctx, stmt)
+					l.logger.Printf("%v insert: n=%v, err=%v", prefix, n, err)
+					return err
+				})
+
+				if err == nil {
+					l.setToken(&cts)
+					l.logger.Printf("%v leadertoken: %v", prefix, l.tokenString())
+					atomic.StoreInt32(&l.leader, 1)
+					return
+				}
+
+				l.logger.Printf("%v leader attempt failed: %v", prefix, err)
+				initial = false
+			}
+
+			// For the succeeding lock attempts.
+			if !initial {
+				prefix := "[next]"
+				token, _, err := l.getCurrentTokenAndId()
+				if err != nil {
+					l.logger.Printf("%v getCurrentTokenAndId failed: %v", prefix, err)
+					return
+				}
+
+				if token == "" {
+					l.logger.Printf("%v read token failed: empty", prefix)
+					return
+				}
+
+				// Attempt to grab the next lock.
+				nxtcts, err := l.db.ReadWriteTransaction(context.Background(), func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+					nxtname := fmt.Sprintf("%v_%v", l.name, token)
+					stmt := spanner.Statement{
+						SQL: fmt.Sprintf("insert %v (name) values ('%s')", l.table, nxtname),
+					}
+
+					n, err := txn.Update(ctx, stmt)
+					l.logger.Printf("%v insert: name=%v, n=%v, err=%v", prefix, nxtname, n, err)
+					return err
+				})
+
+				if err == nil {
+					// We got the lock. Attempt to update the current token to this commit timestamp.
+					_, err := l.db.ReadWriteTransaction(context.Background(), func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+						ts := "PENDING_COMMIT_TIMESTAMP()"
+						stmt := spanner.Statement{
+							SQL:    fmt.Sprintf("update %v set heartbeat = %v, token = @token, writer = @writer where name = @name", l.table, ts),
+							Params: map[string]interface{}{"name": l.name, "token": nxtcts, "writer": l.id},
+						}
+
+						_, err := txn.Update(ctx, stmt)
+						return err
+					})
+
+					if err != nil {
+						l.logger.Printf("%v update token failed: %v", prefix, err)
+						return
+					}
+
+					atomic.StoreInt32(&l.leader, 1)
+					l.setToken(&nxtcts)
+				}
+			}
+		}
+
 		for {
 			select {
 			case <-ticker1.C: // middle heartbeat
@@ -120,98 +209,14 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 					atomic.StoreInt32(&active1, 1)
 					locked()
 				}()
+			case <-first:
+				go attemptLeader()
 			case <-ticker2.C: // duration heartbeat
 				if atomic.LoadInt32(&active2) == 1 {
 					continue
 				}
 
-				go func() {
-					defer func(begin time.Time) {
-						l.logger.Printf("[2/2] duration=%v, iter=%v", time.Since(begin), l.Iterations())
-						atomic.StoreInt32(&active2, 0)
-						atomic.AddInt64(&l.iter, 1)
-					}(time.Now())
-
-					atomic.StoreInt32(&active2, 1)
-					if yes := locked(true); yes {
-						return
-					}
-
-					// Attempt first ever lock; use insert instead of update. Only one client should be able to do this.
-					// The return commit timestamp will be our fencing token.
-					if initial {
-						prefix := "[initial]"
-						cts, err := l.db.ReadWriteTransaction(context.Background(), func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
-							ts := "PENDING_COMMIT_TIMESTAMP()"
-							stmt := spanner.Statement{
-								SQL: fmt.Sprintf("insert %v (name, heartbeat, token, writer) values ('%s', %v, %v, '%v')", l.table, l.name, ts, ts, l.id),
-							}
-
-							n, err := txn.Update(ctx, stmt)
-							l.logger.Printf("%v insert: n=%v, err=%v", prefix, n, err)
-							return err
-						})
-
-						if err == nil {
-							l.setToken(&cts)
-							l.logger.Printf("%v leadertoken: %v", prefix, l.tokenString())
-							atomic.StoreInt32(&l.leader, 1)
-							return
-						}
-
-						l.logger.Printf("%v leader attempt failed: %v", prefix, err)
-						initial = false
-					}
-
-					// For the succeeding lock attempts.
-					if !initial {
-						prefix := "[next]"
-						token, _, err := l.getCurrentTokenAndId()
-						if err != nil {
-							l.logger.Printf("%v getCurrentTokenAndId failed: %v", prefix, err)
-							return
-						}
-
-						if token == "" {
-							l.logger.Printf("%v read token failed: empty", prefix)
-							return
-						}
-
-						// Attempt to grab the next lock.
-						nxtcts, err := l.db.ReadWriteTransaction(context.Background(), func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
-							nxtname := fmt.Sprintf("%v_%v", l.name, token)
-							stmt := spanner.Statement{
-								SQL: fmt.Sprintf("insert %v (name) values ('%s')", l.table, nxtname),
-							}
-
-							n, err := txn.Update(ctx, stmt)
-							l.logger.Printf("%v insert: name=%v, n=%v, err=%v", prefix, nxtname, n, err)
-							return err
-						})
-
-						if err == nil {
-							// We got the lock. Attempt to update the current token to this commit timestamp.
-							_, err := l.db.ReadWriteTransaction(context.Background(), func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
-								ts := "PENDING_COMMIT_TIMESTAMP()"
-								stmt := spanner.Statement{
-									SQL:    fmt.Sprintf("update %v set heartbeat = %v, token = @token, writer = @writer where name = @name", l.table, ts),
-									Params: map[string]interface{}{"name": l.name, "token": nxtcts, "writer": l.id},
-								}
-
-								_, err := txn.Update(ctx, stmt)
-								return err
-							})
-
-							if err != nil {
-								l.logger.Printf("%v update token failed: %v", prefix, err)
-								return
-							}
-
-							atomic.StoreInt32(&l.leader, 1)
-							l.setToken(&nxtcts)
-						}
-					}
-				}()
+				go attemptLeader()
 			case <-quit.Done():
 				if len(done) > 0 {
 					done[0] <- nil
