@@ -54,18 +54,14 @@ type Lock struct {
 // Run starts the main lock loop which can be canceled using the input context. You can provide
 // an optional 'done' channel if you want to be notified when the loop is done.
 func (l *Lock) Run(ctx context.Context, done ...chan error) error {
-	// Two heartbeats per duration. This will prevent unnecessary lock changes just because of
-	// delayed heartbeat updates, which would cause some diffs to be slightly beyond 'duration'.
-	ticker1 := time.NewTicker(time.Millisecond * time.Duration(l.duration/2))
-	ticker2 := time.NewTicker(time.Millisecond * time.Duration(l.duration))
+	ticker := time.NewTicker(time.Millisecond * time.Duration(l.duration))
 	first := make(chan struct{}, 1)
 	first <- struct{}{} // trigger immediately
 	quit := context.WithValue(ctx, struct{}{}, nil)
 
 	go func() {
 		var initial int32 = 1
-		var active1 int32
-		var active2 int32
+		var active int32
 
 		locked := func(clean ...bool) bool {
 			// See if there is an active leased lock (could be us, could be somebody else).
@@ -86,10 +82,10 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 				switch {
 				case diff <= l.duration: // ideally
 					ok = true
-				case diff > l.duration: // 2% should be okay
-					p02 := float64(l.duration) * 0.02
+				case diff > l.duration: // 3% should be okay
+					p03 := float64(l.duration) * 0.03
 					ovr := float64((diff - l.duration))
-					ok = ovr <= p02
+					ok = ovr <= p03
 				}
 
 				if ok {
@@ -103,12 +99,12 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 
 		attemptLeader := func() {
 			defer func(begin time.Time) {
-				l.logger.Printf("[2/2] duration=%v, iter=%v", time.Since(begin), l.Iterations())
-				atomic.StoreInt32(&active2, 0)
+				l.logger.Printf("duration=%v, iter=%v", time.Since(begin), l.Iterations())
+				atomic.StoreInt32(&active, 0)
 				atomic.AddInt64(&l.iter, 1)
 			}(time.Now())
 
-			atomic.StoreInt32(&active2, 1)
+			atomic.StoreInt32(&active, 1)
 			if yes := locked(true); yes {
 				return
 			}
@@ -207,24 +203,10 @@ where name = @name`
 
 		for {
 			select {
-			case <-ticker1.C: // middle heartbeat
-				if atomic.LoadInt32(&active1) == 1 {
-					continue
-				}
-
-				go func() {
-					defer func(begin time.Time) {
-						l.logger.Printf("[1/2] duration=%v", time.Since(begin))
-						atomic.StoreInt32(&active1, 0)
-					}(time.Now())
-
-					atomic.StoreInt32(&active1, 1)
-					locked()
-				}()
 			case <-first: // immediately before 1st tick
 				go attemptLeader()
-			case <-ticker2.C: // duration heartbeat
-				if atomic.LoadInt32(&active2) == 1 {
+			case <-ticker.C: // duration heartbeat
+				if atomic.LoadInt32(&active) == 1 {
 					continue
 				}
 
@@ -234,8 +216,7 @@ where name = @name`
 					done[0] <- nil
 				}
 
-				ticker1.Stop()
-				ticker2.Stop()
+				ticker.Stop()
 				return
 			}
 		}
