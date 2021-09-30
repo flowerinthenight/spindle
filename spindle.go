@@ -67,7 +67,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 		var active1 int32
 		var active2 int32
 
-		locked := func(dbg string, clean ...bool) bool {
+		locked := func(clean ...bool) bool {
 			// See if there is an active leased lock (could be us, could be somebody else).
 			tokenLocked, diff, err := l.checkLock()
 			if err != nil {
@@ -90,7 +90,6 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 					p02 := float64(l.duration) * 0.02
 					ovr := float64((diff - l.duration))
 					ok = ovr <= p02
-					l.logger.Printf("[dbg:%v] ok=%v, over=%v, 2p=%v", dbg, ok, ovr, p02)
 				}
 
 				if ok {
@@ -102,7 +101,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 			return false // lock available
 		}
 
-		attemptLeader := func(dbg string) {
+		attemptLeader := func() {
 			defer func(begin time.Time) {
 				l.logger.Printf("[2/2] duration=%v, iter=%v", time.Since(begin), l.Iterations())
 				atomic.StoreInt32(&active2, 0)
@@ -110,7 +109,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 			}(time.Now())
 
 			atomic.StoreInt32(&active2, 1)
-			if yes := locked(dbg, true); yes {
+			if yes := locked(true); yes {
 				return
 			}
 
@@ -220,16 +219,16 @@ where name = @name`
 					}(time.Now())
 
 					atomic.StoreInt32(&active1, 1)
-					locked("1/2")
+					locked()
 				}()
 			case <-first: // immediately before 1st tick
-				go attemptLeader("1st")
+				go attemptLeader()
 			case <-ticker2.C: // duration heartbeat
 				if atomic.LoadInt32(&active2) == 1 {
 					continue
 				}
 
-				go attemptLeader("2/2")
+				go attemptLeader()
 			case <-quit.Done():
 				if len(done) > 0 {
 					done[0] <- nil
