@@ -87,10 +87,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 				case diff <= l.duration: // ideally
 					ok = true
 				case diff > l.duration: // 2% should be okay
-					p02 := float64(l.duration) * 0.02
-					over := float64((diff - l.duration))
-					ok = over <= p02
-					l.logger.Printf("[dbg] 2%%=%v, over=%v", p02, over)
+					ok = float64((diff - l.duration)) <= float64(l.duration)*0.02
 				}
 
 				if ok {
@@ -99,8 +96,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 				}
 			}
 
-			// Lock available.
-			return false
+			return false // lock available
 		}
 
 		attemptLeader := func() {
@@ -202,8 +198,7 @@ where name = @name`
 						return
 					}
 
-					// Doesn't mean we're leader.
-					l.setToken(&nxtcts)
+					l.setToken(&nxtcts) // doesn't mean we're leader
 				}
 			}
 		}
@@ -224,7 +219,7 @@ where name = @name`
 					atomic.StoreInt32(&active1, 1)
 					locked()
 				}()
-			case <-first:
+			case <-first: // immediately before 1st tick
 				go attemptLeader()
 			case <-ticker2.C: // duration heartbeat
 				if atomic.LoadInt32(&active2) == 1 {
@@ -292,6 +287,11 @@ func (l *Lock) setToken(v *time.Time) {
 	l.token = v
 }
 
+type diff_t struct {
+	Diff  spanner.NullInt64
+	Token spanner.NullTime
+}
+
 func (l *Lock) checkLock() (string, int64, error) {
 	var tokenLocked string
 	var diff int64
@@ -299,7 +299,7 @@ func (l *Lock) checkLock() (string, int64, error) {
 	err := func() error {
 		sql := `
 select
-  timestamp_diff(current_timestamp(), heartbeat, millisecond),
+  timestamp_diff(current_timestamp(), heartbeat, millisecond) as diff,
   token
 from ` + l.table + `
 where name = @name`
@@ -323,22 +323,26 @@ where name = @name`
 				break
 			}
 
-			var v spanner.NullInt64
-			var t spanner.NullTime
-			err = row.Columns(&v, &t)
+			var v diff_t
+			err = row.ToStruct(&v)
 			if err != nil {
 				return err
 			}
 
-			diff = v.Int64
-			tokenLocked = t.Time.UTC().Format(time.RFC3339Nano)
-			l.logger.Printf("diff=%v, token=%v", v.Int64, tokenLocked)
+			diff = v.Diff.Int64
+			tokenLocked = v.Token.Time.UTC().Format(time.RFC3339Nano)
+			l.logger.Printf("diff=%v, token=%v", v.Diff.Int64, tokenLocked)
 		}
 
 		return retErr
 	}()
 
 	return tokenLocked, diff, err
+}
+
+type token_t struct {
+	Token  spanner.NullTime
+	Writer spanner.NullString
 }
 
 func (l *Lock) getCurrentTokenAndId() (string, string, error) {
@@ -365,16 +369,15 @@ where name = @name`
 			return "", "", err
 		}
 
-		var t spanner.NullTime
-		var w spanner.NullString
-		err = row.Columns(&t, &w)
+		var v token_t
+		err = row.ToStruct(&v)
 		if err != nil {
 			return "", "", err
 		}
 
-		token = t.Time.UTC().Format(time.RFC3339Nano)
-		if w.Valid {
-			writer = w.String()
+		token = v.Token.Time.UTC().Format(time.RFC3339Nano)
+		if v.Writer.Valid {
+			writer = v.Writer.String()
 		}
 	}
 
