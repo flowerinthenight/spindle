@@ -82,10 +82,9 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 				switch {
 				case diff <= l.duration: // ideally
 					ok = true
-				case diff > l.duration: // 5% should be okay
-					p05 := float64(l.duration) * 0.05
+				case diff > l.duration:
 					ovr := float64((diff - l.duration))
-					ok = ovr <= p05
+					ok = ovr <= 1000 // allow 1s drift
 				}
 
 				if ok {
