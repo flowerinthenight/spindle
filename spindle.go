@@ -59,7 +59,8 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 	// delayed heartbeat updates, which would cause some diffs to be slightly beyond 'duration'.
 	ticker1 := time.NewTicker(time.Millisecond * time.Duration(l.duration/2))
 	ticker2 := time.NewTicker(time.Millisecond * time.Duration(l.duration))
-	first := make(chan struct{}, 1) // immediate
+	first := make(chan struct{}, 1)
+	first <- struct{}{} // immediate
 	quit := context.WithValue(ctx, struct{}{}, nil)
 
 	go func() {
