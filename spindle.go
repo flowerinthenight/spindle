@@ -86,11 +86,11 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 				switch {
 				case diff <= l.duration: // ideally
 					ok = true
-				case diff > l.duration: // 3% should be okay
-					p03 := float64(l.duration) * 0.03
+				case diff > l.duration: // 2% should be okay
+					p02 := float64(l.duration) * 0.02
 					over := float64((diff - l.duration))
-					ok = over <= p03
-					l.logger.Printf("[dbg] 3%%=%v, over=%v", p03, over)
+					ok = over <= p02
+					l.logger.Printf("[dbg] 2%%=%v, over=%v", p02, over)
 				}
 
 				if ok {
