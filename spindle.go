@@ -87,7 +87,10 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 				case diff <= l.duration: // ideally
 					ok = true
 				case diff > l.duration: // 2% should be okay
-					ok = float64((diff - l.duration)) <= float64(l.duration)*0.02
+					p02 := float64(l.duration) * 0.02
+					ovr := float64((diff - l.duration))
+					ok = ovr <= p02
+					l.logger.Printf("[dbg] over=%v, 2p=%v", ovr, p02)
 				}
 
 				if ok {
