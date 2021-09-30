@@ -63,7 +63,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 		var initial int32 = 1
 		var active int32
 
-		locked := func(clean ...bool) bool {
+		locked := func() bool {
 			// See if there is an active leased lock (could be us, could be somebody else).
 			tokenLocked, diff, err := l.checkLock()
 			if err != nil {
@@ -73,7 +73,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 
 			if l.tokenString() != "" && l.tokenString() == tokenLocked {
 				l.logger.Println("leader active (me)")
-				l.heartbeat(clean...)
+				l.heartbeat()
 				return true
 			}
 
@@ -82,10 +82,10 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 				switch {
 				case diff <= l.duration: // ideally
 					ok = true
-				case diff > l.duration: // 3% should be okay
-					p03 := float64(l.duration) * 0.03
+				case diff > l.duration: // 5% should be okay
+					p05 := float64(l.duration) * 0.05
 					ovr := float64((diff - l.duration))
-					ok = ovr <= p03
+					ok = ovr <= p05
 				}
 
 				if ok {
@@ -105,7 +105,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 			}(time.Now())
 
 			atomic.StoreInt32(&active, 1)
-			if yes := locked(true); yes {
+			if yes := locked(); yes {
 				return
 			}
 
@@ -367,7 +367,7 @@ where name = @name`
 	return token, writer, nil
 }
 
-func (l *Lock) heartbeat(clean ...bool) {
+func (l *Lock) heartbeat() {
 	ctx := context.Background()
 	l.db.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		sql := `
@@ -383,14 +383,10 @@ where name = @name`
 		_, err := txn.Update(ctx, stmt)
 		l.logger.Printf("heartbeat: id=%v, err=%v", l.id, err)
 
-		if len(clean) > 0 {
-			if clean[0] {
-				delname := fmt.Sprintf("%v_", l.name)
-				sql := fmt.Sprintf("delete from %v where starts_with(name, '%v')", l.table, delname)
-				txn.Update(ctx, spanner.Statement{SQL: sql})
-			}
-		}
-
+		// Best-effort cleanup.
+		delname := fmt.Sprintf("%v_", l.name)
+		sql = fmt.Sprintf("delete from %v where starts_with(name, '%v')", l.table, delname)
+		txn.Update(ctx, spanner.Statement{SQL: sql})
 		return err
 	})
 }
