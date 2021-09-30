@@ -45,7 +45,6 @@ type Lock struct {
 	name     string // lock name
 	id       string // unique id for this instance
 	duration int64  // lock duration in ms
-	leader   int32  // 1 = leader, 0 = !leader
 	iter     int64
 	token    *time.Time
 	mtx      *sync.Mutex
@@ -60,11 +59,11 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 	ticker1 := time.NewTicker(time.Millisecond * time.Duration(l.duration/2))
 	ticker2 := time.NewTicker(time.Millisecond * time.Duration(l.duration))
 	first := make(chan struct{}, 1)
-	first <- struct{}{} // immediate
+	first <- struct{}{} // trigger immediately
 	quit := context.WithValue(ctx, struct{}{}, nil)
 
 	go func() {
-		initial := true
+		var initial int32 = 1
 		var active1 int32
 		var active2 int32
 
@@ -78,7 +77,6 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 
 			if l.tokenString() != "" && l.tokenString() == tokenLocked {
 				l.logger.Println("leader active (me)")
-				atomic.StoreInt32(&l.leader, 1)
 				l.heartbeat(clean...)
 				return true
 			}
@@ -97,7 +95,6 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 
 				if ok {
 					l.logger.Println("leader active (not me)")
-					atomic.StoreInt32(&l.leader, 0)
 					return true
 				}
 			}
@@ -118,34 +115,39 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 				return
 			}
 
-			// Attempt first ever lock; use insert instead of update. Only one client should be able to do this.
-			// The return commit timestamp will be our fencing token.
-			if initial {
+			// Attempt first ever lock. The return commit timestamp will be our fencing token.
+			// Only one node should be able to do this successfully.
+			if atomic.LoadInt32(&initial) == 1 {
 				prefix := "[initial]"
-				cts, err := l.db.ReadWriteTransaction(context.Background(), func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
-					ts := "PENDING_COMMIT_TIMESTAMP()"
-					stmt := spanner.Statement{
-						SQL: fmt.Sprintf("insert %v (name, heartbeat, token, writer) values ('%s', %v, %v, '%v')", l.table, l.name, ts, ts, l.id),
-					}
+				cts, err := l.db.ReadWriteTransaction(context.Background(),
+					func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+						sql := `
+insert ` + l.table + `
+  (name, heartbeat, token, writer)
+values (
+  '` + l.name + `',
+  PENDING_COMMIT_TIMESTAMP(),
+  PENDING_COMMIT_TIMESTAMP(),
+  '` + l.id + `'
+)`
 
-					n, err := txn.Update(ctx, stmt)
-					l.logger.Printf("%v insert: n=%v, err=%v", prefix, n, err)
-					return err
-				})
+						n, err := txn.Update(ctx, spanner.Statement{SQL: sql})
+						l.logger.Printf("%v insert: n=%v, err=%v", prefix, n, err)
+						return err
+					})
 
 				if err == nil {
 					l.setToken(&cts)
 					l.logger.Printf("%v leadertoken: %v", prefix, l.tokenString())
-					atomic.StoreInt32(&l.leader, 1)
 					return
 				}
 
 				l.logger.Printf("%v leader attempt failed: %v", prefix, err)
-				initial = false
+				atomic.StoreInt32(&initial, 0)
 			}
 
 			// For the succeeding lock attempts.
-			if !initial {
+			if atomic.LoadInt32(&initial) == 0 {
 				prefix := "[next]"
 				token, _, err := l.getCurrentTokenAndId()
 				if err != nil {
@@ -158,37 +160,49 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 					return
 				}
 
-				// Attempt to grab the next lock.
-				nxtcts, err := l.db.ReadWriteTransaction(context.Background(), func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
-					nxtname := fmt.Sprintf("%v_%v", l.name, token)
-					stmt := spanner.Statement{
-						SQL: fmt.Sprintf("insert %v (name) values ('%s')", l.table, nxtname),
-					}
+				// Attempt to grab the next lock. Multiple nodes could potentially do this successfully.
+				nxtcts, err := l.db.ReadWriteTransaction(context.Background(),
+					func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+						nxtname := fmt.Sprintf("%v_%v", l.name, token)
+						sql := `
+insert ` + l.table + ` (name)
+values ('` + nxtname + `')`
 
-					n, err := txn.Update(ctx, stmt)
-					l.logger.Printf("%v insert: name=%v, n=%v, err=%v", prefix, nxtname, n, err)
-					return err
-				})
+						n, err := txn.Update(ctx, spanner.Statement{SQL: sql})
+						l.logger.Printf("%v insert: name=%v, n=%v, err=%v", prefix, nxtname, n, err)
+						return err
+					})
 
 				if err == nil {
 					// We got the lock. Attempt to update the current token to this commit timestamp.
-					_, err := l.db.ReadWriteTransaction(context.Background(), func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
-						ts := "PENDING_COMMIT_TIMESTAMP()"
-						stmt := spanner.Statement{
-							SQL:    fmt.Sprintf("update %v set heartbeat = %v, token = @token, writer = @writer where name = @name", l.table, ts),
-							Params: map[string]interface{}{"name": l.name, "token": nxtcts, "writer": l.id},
-						}
+					_, err := l.db.ReadWriteTransaction(context.Background(),
+						func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+							sql := `
+update ` + l.table + ` set
+  heartbeat = PENDING_COMMIT_TIMESTAMP(),
+  token = @token,
+  writer = @writer
+where name = @name`
 
-						_, err := txn.Update(ctx, stmt)
-						return err
-					})
+							stmt := spanner.Statement{
+								SQL: sql,
+								Params: map[string]interface{}{
+									"name":   l.name,
+									"token":  nxtcts,
+									"writer": l.id,
+								},
+							}
+
+							_, err := txn.Update(ctx, stmt)
+							return err
+						})
 
 					if err != nil {
 						l.logger.Printf("%v update token failed: %v", prefix, err)
 						return
 					}
 
-					atomic.StoreInt32(&l.leader, 1)
+					// Doesn't mean we're leader.
 					l.setToken(&nxtcts)
 				}
 			}
@@ -223,7 +237,6 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 					done[0] <- nil
 				}
 
-				atomic.StoreInt32(&l.leader, 0)
 				ticker1.Stop()
 				ticker2.Stop()
 				return
@@ -284,8 +297,15 @@ func (l *Lock) checkLock() (string, int64, error) {
 	var diff int64
 
 	err := func() error {
+		sql := `
+select
+  timestamp_diff(current_timestamp(), heartbeat, millisecond),
+  token
+from ` + l.table + `
+where name = @name`
+
 		stmt := spanner.Statement{
-			SQL:    fmt.Sprintf("select timestamp_diff(current_timestamp(), heartbeat, millisecond), token from %v where name = @name", l.table),
+			SQL:    sql,
 			Params: map[string]interface{}{"name": l.name},
 		}
 
@@ -323,8 +343,13 @@ func (l *Lock) checkLock() (string, int64, error) {
 
 func (l *Lock) getCurrentTokenAndId() (string, string, error) {
 	var token, writer string
+	sql := `
+select token, writer
+from ` + l.table + `
+where name = @name`
+
 	stmt := spanner.Statement{
-		SQL:    fmt.Sprintf("select token, writer from %v where name = @name", l.table),
+		SQL:    sql,
 		Params: map[string]interface{}{"name": l.name},
 	}
 
@@ -359,8 +384,13 @@ func (l *Lock) getCurrentTokenAndId() (string, string, error) {
 func (l *Lock) heartbeat(clean ...bool) {
 	ctx := context.Background()
 	l.db.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		sql := `
+update ` + l.table + `
+set heartbeat = PENDING_COMMIT_TIMESTAMP()
+where name = @name`
+
 		stmt := spanner.Statement{
-			SQL:    fmt.Sprintf("update %v set heartbeat = PENDING_COMMIT_TIMESTAMP() where name = @name", l.table),
+			SQL:    sql,
 			Params: map[string]interface{}{"name": l.name},
 		}
 
@@ -370,12 +400,8 @@ func (l *Lock) heartbeat(clean ...bool) {
 		if len(clean) > 0 {
 			if clean[0] {
 				delname := fmt.Sprintf("%v_", l.name)
-				stmt = spanner.Statement{
-					SQL:    fmt.Sprintf("delete from %v where starts_with(name, '%v')", l.table, delname),
-					Params: map[string]interface{}{"name": l.name},
-				}
-
-				txn.Update(ctx, stmt)
+				sql := fmt.Sprintf("delete from %v where starts_with(name, '%v')", l.table, delname)
+				txn.Update(ctx, spanner.Statement{SQL: sql})
 			}
 		}
 
