@@ -86,7 +86,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 					// Sometimes, its going to go beyond duration+drift, even in normal
 					// situations. In that case, we will allow a new leader for now.
 					ovr := float64((diff - l.duration))
-					ok = ovr <= 1000 // allow 1s drift
+					ok = ovr <= 2000 // allow 2s drift
 				}
 
 				if ok {
