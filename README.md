@@ -1,7 +1,7 @@
 ![main](https://github.com/flowerinthenight/spindle/workflows/main/badge.svg)
 
 ## spindle
-A [Spanner](https://cloud.google.com/spanner/)-backed distributed locking library. It uses Spanner's support for [transactions](https://cloud.google.com/spanner/docs/transactions) and [TrueTime](https://cloud.google.com/spanner/docs/true-time-external-consistency) to achieve its locking mechanism.
+A distributed locking library built on top of [Cloud Spanner](https://cloud.google.com/spanner/). It uses Spanner's support for [transactions](https://cloud.google.com/spanner/docs/transactions) and [TrueTime](https://cloud.google.com/spanner/docs/true-time-external-consistency) to achieve its locking mechanism.
 
 ## Usage
 At the moment, the table needs to be created beforehand using the following DDL (`locktable` is just an example):
