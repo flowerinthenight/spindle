@@ -22,24 +22,19 @@ This library doesn't use the usual synchronous "lock", "do protected work", "unl
 db, _ := spanner.NewClient(context.Background(), "your/database")
 defer db.Close()
 
-// Notify me when done.
-done := make(chan error, 1)
-
-// For cancellation.
-quit, cancel := context.WithCancel(context.Background())
+done := make(chan error, 1) // notify me when done (optional)
+quit, cancel := context.WithCancel(context.Background()) // for cancel
 
 // Instantiate the lock object using a 5s lease duration using locktable above.
 lock := spindle.New(db, "locktable", "mylock", spindle.WithDuration(5000))
 
-// Start the main loop, async.
-lock.Run(quit, done)
+lock.Run(quit, done) // start the main loop, async
 
 time.Sleep(time.Second * 20)
-
 locked, token := lock.HasLock()
 log.Println("HasLock:", locked, token)
-
 time.Sleep(time.Second * 20)
+
 cancel()
 <-done
 ```
