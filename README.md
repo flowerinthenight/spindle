@@ -3,7 +3,7 @@
 ## spindle
 A distributed locking library built on top of [Cloud Spanner](https://cloud.google.com/spanner/). It uses Spanner's [TrueTime](https://cloud.google.com/spanner/docs/true-time-external-consistency) and [transactions](https://cloud.google.com/spanner/docs/transactions) support to achieve its locking mechanism.
 
-This library is also one of the main building blocks of [hedge](https://github.com/flowerinthenight/hedge), another one of our production staples. For context, `spindle` has been in our production for quite some time and is used in several critical services. The biggest deployment size running `spindle` is about ~100+ pods with unpredictable scaling schedules. Between k8s scaling triggers and multiple service deployments in a day, `spindle` so far has held its own, running like clockwork. With that said though, `spindle` also works on single-pod deployments; that pod will always be the leader.
+This library is also one of the main building blocks of [hedge](https://github.com/flowerinthenight/hedge), another one of our production staples. For context, `spindle` has been in our production for quite some time and is used in several critical services. The biggest deployment size running `spindle` is about ~100+ pods with unpredictable scaling schedules. Between k8s scaling triggers and multiple service deployments in a day, `spindle` so far has held its own, running like clockwork. With that said though, `spindle` also works on single-pod deployments.
 
 ## Usage
 At the moment, the table needs to be created beforehand using the following DDL (`locktable` is just an example):
