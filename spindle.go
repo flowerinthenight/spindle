@@ -51,8 +51,8 @@ type Lock struct {
 	logger   *log.Logger
 }
 
-// Run starts the main lock loop which can be canceled using the input context. You can provide
-// an optional 'done' channel if you want to be notified when the loop is done.
+// Run starts the main lock loop which can be canceled using the input context. You can
+// provide an optional done channel if you want to be notified when the loop is done.
 func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 	ticker := time.NewTicker(time.Millisecond * time.Duration(l.duration))
 	first := make(chan struct{}, 1)
