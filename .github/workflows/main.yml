@@ -46,6 +46,5 @@ jobs:
         gcloud config set api_endpoint_overrides/spanner http://localhost:9020/
         gcloud spanner instances create test-instance --config=emulator-config --description="Test Instance" --nodes=1
         export SPANNER_EMULATOR_HOST=localhost:9010
-        gcloud spanner databases create testdb --instance=test-instance \
-          --ddl='CREATE TABLE locktable (name STRING(MAX) NOT NULL, heartbeat TIMESTAMP OPTIONS (allow_commit_timestamp=true), token TIMESTAMP OPTIONS (allow_commit_timestamp=true), writer STRING(MAX)) PRIMARY KEY (name)'
+        gcloud spanner databases create testdb --instance=test-instance --ddl-file=$PWD/testdata/emuddl.sql
         go test -v ./...
