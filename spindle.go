@@ -14,6 +14,10 @@ import (
 	"google.golang.org/api/iterator"
 )
 
+var (
+	ErrNotRunning = fmt.Errorf("spindle: not running")
+)
+
 type Option interface {
 	Apply(*Lock)
 }
@@ -49,6 +53,7 @@ type Lock struct {
 	token    *time.Time
 	mtx      *sync.Mutex
 	logger   *log.Logger
+	active   int32
 }
 
 // Run starts the main lock loop which can be canceled using the input context. You can
@@ -101,11 +106,12 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 		attemptLeader := func() {
 			defer func(begin time.Time) {
 				l.logger.Printf("duration=%v, iter=%v", time.Since(begin), l.Iterations())
-				atomic.StoreInt32(&active, 0)
+				atomic.StoreInt32(&l.active, 1) // global
+				atomic.StoreInt32(&active, 0)   // local
 				atomic.AddInt64(&l.iter, 1)
 			}(time.Now())
 
-			atomic.StoreInt32(&active, 1)
+			atomic.StoreInt32(&active, 1) // local
 			if yes := locked(); yes {
 				return
 			}
@@ -217,6 +223,7 @@ where name = @name`
 					done[0] <- nil
 				}
 
+				atomic.StoreInt32(&l.active, 0) // global
 				ticker.Stop()
 				return
 			}
@@ -228,6 +235,10 @@ where name = @name`
 
 // HasLock returns true if this instance got the lock, together with the lock token.
 func (l *Lock) HasLock() (bool, string) {
+	if atomic.LoadInt32(&l.active) == 0 {
+		return false, ""
+	}
+
 	token, _, err := l.getCurrentTokenAndId()
 	if err != nil {
 		return false, token
@@ -242,6 +253,10 @@ func (l *Lock) HasLock() (bool, string) {
 
 // Leader returns the current leader id.
 func (l *Lock) Leader() (string, error) {
+	if atomic.LoadInt32(&l.active) == 0 {
+		return "", ErrNotRunning
+	}
+
 	_, w, err := l.getCurrentTokenAndId()
 	return w, err
 }
