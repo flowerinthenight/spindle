@@ -51,8 +51,3 @@ $ cd examples/simple/
 $ go build -v
 $ for num in 1 2 3; do ./simple &; done
 ```
-
-----
-
-### TODO
-- [ ] Add tests using Spanner Emulator
