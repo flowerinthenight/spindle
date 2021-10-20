@@ -28,14 +28,12 @@ func TestLock(t *testing.T) {
 
 	lock.Run(quit, done)
 
+	var cnt int
 	bo := gaxv2.Backoff{
 		Initial:    time.Second,
 		Max:        time.Second * 30,
 		Multiplier: 2,
 	}
-
-	var cnt int
-	time.Sleep(time.Second * 20)
 
 	for {
 		cnt++
