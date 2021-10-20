@@ -37,8 +37,8 @@ jobs:
 
     - name: Test using emulator
       run: |
-        curl -O https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-sdk-324.0.0-linux-x86_64.tar.gz
-        tar xvzf google-cloud-sdk-324.0.0-linux-x86_64.tar.gz
+        curl -O https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-sdk-361.0.0-linux-x86_64.tar.gz
+        tar xvzf google-cloud-sdk-361.0.0-linux-x86_64.tar.gz
         ./google-cloud-sdk/install.sh --quiet
         gcloud config configurations create emulator
         gcloud config set auth/disable_credentials true
@@ -46,4 +46,5 @@ jobs:
         gcloud config set api_endpoint_overrides/spanner http://localhost:9020/
         gcloud spanner instances create test-instance --config=emulator-config --description="Test Instance" --nodes=1
         export SPANNER_EMULATOR_HOST=localhost:9010
+        gcloud spanner databases list --instance test-instance
         go test -v ./...
