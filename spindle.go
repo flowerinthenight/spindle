@@ -233,7 +233,7 @@ func (l *Lock) HasLock() (bool, string) {
 		return false, token
 	}
 
-	if token == l.tokenString() {
+	if token != "" && token == l.tokenString() {
 		return true, token
 	}
 
