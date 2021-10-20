@@ -9,7 +9,7 @@ import (
 
 func TestInstance(t *testing.T) {
 	ctx := context.Background()
-	dbstr := "projects/test-project/instances/test-instance/databases/db"
+	dbstr := "projects/test-project/instances/test-instance/databases/testdb"
 	client, err := spanner.NewClient(ctx, dbstr)
 	if err != nil {
 		t.Error(err)
