@@ -1,4 +1,5 @@
 ![main](https://github.com/flowerinthenight/spindle/workflows/main/badge.svg)
+[![Go Reference](https://pkg.go.dev/badge/github.com/flowerinthenight/spindle.svg)](https://pkg.go.dev/github.com/flowerinthenight/spindle)
 
 ## spindle
 A distributed locking library built on top of [Cloud Spanner](https://cloud.google.com/spanner/). It uses Spanner's [TrueTime](https://cloud.google.com/spanner/docs/true-time-external-consistency) and [transactions](https://cloud.google.com/spanner/docs/transactions) support to achieve its locking mechanism.
