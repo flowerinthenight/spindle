@@ -4,8 +4,6 @@
 ## spindle
 A distributed locking library built on top of [Cloud Spanner](https://cloud.google.com/spanner/). It uses Spanner's [TrueTime](https://cloud.google.com/spanner/docs/true-time-external-consistency) and [transactions](https://cloud.google.com/spanner/docs/transactions) support to achieve its locking mechanism.
 
-See [here](https://pkg.go.dev/github.com/flowerinthenight/spindle) for the documentation.
-
 ## Usage
 At the moment, the table needs to be created beforehand using the following DDL (`locktable` is just an example):
 ```SQL
