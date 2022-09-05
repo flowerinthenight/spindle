@@ -286,7 +286,7 @@ func (l *Lock) setToken(v *time.Time) {
 	l.token = v
 }
 
-type diff_t struct {
+type diffT struct {
 	Diff  spanner.NullInt64
 	Token spanner.NullTime
 }
@@ -322,7 +322,7 @@ where name = @name`
 				break
 			}
 
-			var v diff_t
+			var v diffT
 			err = row.ToStruct(&v)
 			if err != nil {
 				return err
@@ -339,7 +339,7 @@ where name = @name`
 	return tokenLocked, diff, err
 }
 
-type token_t struct {
+type tokenT struct {
 	Token  spanner.NullTime
 	Writer spanner.NullString
 }
@@ -368,7 +368,7 @@ where name = @name`
 			return "", "", err
 		}
 
-		var v token_t
+		var v tokenT
 		err = row.ToStruct(&v)
 		if err != nil {
 			return "", "", err
