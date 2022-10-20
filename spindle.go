@@ -119,7 +119,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 			// Attempt first ever lock. The return commit timestamp will be our fencing token.
 			// Only one node should be able to do this successfully.
 			if atomic.LoadInt32(&initial) == 1 {
-				prefix := "[initial]"
+				prefix := "[init]"
 				cts, err := l.db.ReadWriteTransaction(context.Background(),
 					func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 						sql := `
