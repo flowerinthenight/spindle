@@ -36,6 +36,14 @@ func (w withDuration) Apply(o *Lock) { o.duration = int64(w) }
 // WithDuration sets the locker's lease duration.
 func WithDuration(v int64) Option { return withDuration(v) }
 
+type withCleanRecordsOnExit bool
+
+func (w withCleanRecordsOnExit) Apply(o *Lock) { o.delOnExit = bool(w) }
+
+// WithCleanRecordsOnExit allows full database cleanup on exit. Useful if you
+// intend to reuse the lock name later on.
+func WithCleanRecordsOnExit(v bool) Option { return withCleanRecordsOnExit(v) }
+
 type withLogger struct{ l *log.Logger }
 
 func (w withLogger) Apply(o *Lock) { o.logger = w.l }
@@ -44,16 +52,17 @@ func (w withLogger) Apply(o *Lock) { o.logger = w.l }
 func WithLogger(v *log.Logger) Option { return withLogger{v} }
 
 type Lock struct {
-	db       *spanner.Client
-	table    string // table name
-	name     string // lock name
-	id       string // unique id for this instance
-	duration int64  // lock duration in ms
-	iter     int64
-	token    *time.Time
-	mtx      *sync.Mutex
-	logger   *log.Logger
-	active   int32
+	db        *spanner.Client
+	table     string // table name
+	name      string // lock name
+	id        string // unique id for this instance
+	duration  int64  // lock duration in ms
+	iter      int64
+	token     *time.Time
+	mtx       *sync.Mutex
+	logger    *log.Logger
+	active    int32
+	delOnExit bool
 }
 
 // Run starts the main lock loop which can be canceled using the input context. You can
@@ -225,6 +234,10 @@ where name = @name`
 
 				atomic.StoreInt32(&l.active, 0) // global
 				ticker.Stop()
+				if l.delOnExit {
+					l.delRecs()
+				}
+
 				return
 			}
 		}
@@ -404,6 +417,26 @@ where name = @name`
 		sql = fmt.Sprintf("delete from %v where starts_with(name, '%v')", l.table, delname)
 		txn.Update(ctx, spanner.Statement{SQL: sql})
 		return err
+	})
+}
+
+func (l *Lock) delRecs() {
+	ctx := context.Background()
+	l.db.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		delname := fmt.Sprintf("%v_", l.name)
+		sql := fmt.Sprintf("delete from %v where starts_with(name, '%v')", l.table, delname)
+		_, err := txn.Update(ctx, spanner.Statement{SQL: sql})
+		if err != nil {
+			l.logger.Printf("failed (%v): %v", sql, err)
+		}
+
+		sql = fmt.Sprintf("delete from %v where name = '%v')", l.table, l.name)
+		_, err = txn.Update(ctx, spanner.Statement{SQL: sql})
+		if err != nil {
+			l.logger.Printf("failed (%v): %v", sql, err)
+		}
+
+		return nil
 	})
 }
 
