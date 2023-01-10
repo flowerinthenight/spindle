@@ -430,7 +430,7 @@ func (l *Lock) delRecs() {
 			l.logger.Printf("failed (%v): %v", sql, err)
 		}
 
-		sql = fmt.Sprintf("delete from %v where name = '%v')", l.table, l.name)
+		sql = fmt.Sprintf("delete from %v where name = '%v'", l.table, l.name)
 		_, err = txn.Update(ctx, spanner.Statement{SQL: sql})
 		if err != nil {
 			l.logger.Printf("failed (%v): %v", sql, err)
