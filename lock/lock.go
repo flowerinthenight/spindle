@@ -43,7 +43,6 @@ func NewSpindleLock(opts *SpindleLockOptions) *SpindleLock {
 		sopts = append(sopts, spindle.WithLogger(opts.Logger))
 	}
 
-	sopts = append(sopts, spindle.WithCleanRecordsOnExit(true))
 	s.lock = spindle.New(opts.Client, opts.Table, opts.Name, sopts...)
 	return s
 }
