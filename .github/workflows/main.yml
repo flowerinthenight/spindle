@@ -37,8 +37,8 @@ jobs:
 
     - name: Test using emulator
       run: |
-        curl -O https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-sdk-361.0.0-linux-x86_64.tar.gz
-        tar xvzf google-cloud-sdk-361.0.0-linux-x86_64.tar.gz
+        curl -O https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-sdk-400.0.0-linux-x86_64.tar.gz
+        tar xvzf google-cloud-sdk-400.0.0-linux-x86_64.tar.gz
         ./google-cloud-sdk/install.sh --quiet
         gcloud config configurations create emulator
         gcloud config set auth/disable_credentials true
