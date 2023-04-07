@@ -105,7 +105,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 
 		attemptLeader := func() {
 			defer func(begin time.Time) {
-				l.logger.Printf("duration=%v, iter=%v", time.Since(begin), l.Iterations())
+				l.logger.Printf("duration=%v, n=%v", time.Since(begin), l.Iterations())
 				atomic.StoreInt32(&l.active, 1) // global
 				atomic.StoreInt32(&active, 0)   // local
 				atomic.AddInt64(&l.iter, 1)
