@@ -2,7 +2,7 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/flowerinthenight/spindle.svg)](https://pkg.go.dev/github.com/flowerinthenight/spindle)
 
 ## spindle
-A distributed locking library built on top of [Cloud Spanner](https://cloud.google.com/spanner/). It relies on Spanner's [TrueTime](https://cloud.google.com/spanner/docs/true-time-external-consistency) and [transactions](https://cloud.google.com/spanner/docs/transactions) support to achieve its locking mechanism.
+A distributed locking library built on top of [Cloud Spanner](https://cloud.google.com/spanner/). It relies on Spanner's [TrueTime](https://cloud.google.com/spanner/docs/true-time-external-consistency) and [transactions](https://cloud.google.com/spanner/docs/transactions) support to achieve its locking mechanism. It's similar to [Amazon DynamoDB Lock Client](https://github.com/awslabs/amazon-dynamodb-lock-client).
 
 ## Usage
 At the moment, the table needs to be created beforehand using the following DDL (`locktable` is just an example):
