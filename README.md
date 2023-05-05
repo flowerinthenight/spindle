@@ -10,7 +10,6 @@ Similar projects:
 * [distributed-lock](https://github.com/alturkovic/distributed-lock) - Java
 * [redlock-rb](https://github.com/leandromoreira/redlock-rb) - Ruby
 * [lockgate](https://github.com/werf/lockgate) - Go
-* [dlock](https://github.com/flowerinthenight/dlock) - Go
 * [kettle](https://github.com/flowerinthenight/kettle) - Go
 
 ## Usage
