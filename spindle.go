@@ -135,7 +135,8 @@ values (
 						n, err := txn.Update(ctx, spanner.Statement{SQL: sql})
 						l.logger.Printf("%v insert: n=%v, err=%v", prefix, n, err)
 						return err
-					})
+					},
+				)
 
 				if err == nil {
 					l.setToken(&cts)
@@ -345,17 +346,13 @@ type tokenT struct {
 }
 
 func (l *Lock) getCurrentTokenAndId() (string, string, error) {
-	var token, writer string
-	sql := `
-select token, writer
-from ` + l.table + `
-where name = @name`
-
+	sql := ` select token, writer from ` + l.table + ` where name = @name`
 	stmt := spanner.Statement{
 		SQL:    sql,
 		Params: map[string]interface{}{"name": l.name},
 	}
 
+	var token, writer string
 	iter := l.db.Single().Query(context.Background(), stmt)
 	defer iter.Stop()
 	for {
