@@ -55,6 +55,7 @@ When a lock is active, all participating processes will detect if the lease has 
 A simple [code](./examples/simple/main.go) is provided to demonstrate the mechanism through logs. You can try running multiple binaries in multiple terminals.
 
 ```bash
+# Update flags with your values as needed:
 $ cd examples/simple/
 $ go build -v
 $ ./simple -db projects/v/instances/v/databases/v -table mytable -name mylock
