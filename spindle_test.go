@@ -30,9 +30,8 @@ func TestLock(t *testing.T) {
 
 	var cnt int
 	bo := gaxv2.Backoff{
-		Initial:    time.Second,
-		Max:        time.Second * 30,
-		Multiplier: 2,
+		Initial: time.Second,
+		Max:     time.Second * 30,
 	}
 
 	for {

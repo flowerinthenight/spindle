@@ -2,40 +2,45 @@ package main
 
 import (
 	"context"
+	"flag"
 	"log"
-	"time"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"cloud.google.com/go/spanner"
 	"github.com/flowerinthenight/spindle"
 )
 
 func main() {
+	dbstr := flag.String("db", "", "db, fmt: projects/{v}/instances/{v}/databases/{v}")
+	table := flag.String("table", "testlease", "table name")
+	name := flag.String("name", "mylock", "lock name")
+	flag.Parse()
+
 	// To run, update the database name, table name, and, optionally, the lock name.
 	// It is assumed that your environment is able to authenticate to Spanner via
 	// GOOGLE_APPLICATION_CREDENTIALS environment variable.
-	db, err := spanner.NewClient(
-		context.Background(),
-		"projects/{project}/instances/{instance}/databases/{db}",
-	)
-
+	ctx := context.Background()
+	db, err := spanner.NewClient(ctx, *dbstr)
 	if err != nil {
 		log.Println(err)
 		return
 	}
 
 	defer db.Close()
+	quit, cancel := context.WithCancel(ctx)
+	lock := spindle.New(db, *table, *name, spindle.WithDuration(5000))
 
 	done := make(chan error, 1)
-	quit, cancel := context.WithCancel(context.Background())
-	lock := spindle.New(db, "testlease", "mylock", spindle.WithDuration(5000))
+	lock.Run(quit, done) // start main loop
 
-	// Start the main loop.
-	lock.Run(quit, done)
+	go func() {
+		sigch := make(chan os.Signal)
+		signal.Notify(sigch, syscall.SIGINT, syscall.SIGTERM)
+		<-sigch
+		cancel()
+	}()
 
-	time.Sleep(time.Second * 20)
-	locked, token := lock.HasLock()
-	log.Println(">>>>> HasLock:", locked, token)
-	time.Sleep(time.Second * 20)
-	cancel()
 	<-done
 }
