@@ -52,7 +52,7 @@ The initial lock (the lock record doesn't exist in the table yet) is acquired by
 When a lock is active, all participating processes will detect if the lease has expired by checking the heartbeat against Spanner's current timestamp. If so (say, the active locker has crashed, or cancelled), another round of SQL `INSERT` is attempted, this time, using the name format `<lockname_current-lock-token>`. The process that gets the lock this time will then attempt to update the `token` column using its commit timestamp, thus, updating the fencing token. In the event that the original locker process recovers (if crashed), or continues after a stop-the-world GC pause, the latest token should invalidate its locking claim (its token is already outdated).
 
 ## Example
-A simple [code](./examples/simple/main.go) is provided to demonstrate the mechanism through logs. You can try running multiple binaries in multiple terminals.
+A simple [code](./examples/simple/main.go) is provided to demonstrate the mechanism through logs. You can try running multiple processes in multiple terminals.
 
 ```bash
 # Update flags with your values as needed:
@@ -61,4 +61,4 @@ $ go build -v
 $ ./simple -db projects/v/instances/v/databases/v -table mytable -name mylock
 ```
 
-The leader process should ouput something like `leader active (me)`. You can then try to stop (Ctrl+C) that process and observe another one taking over as leader.
+The leader process should output something like `leader active (me)`. You can then try to stop (Ctrl+C) that process and observe another one taking over as leader.
