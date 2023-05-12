@@ -58,7 +58,7 @@ A simple [code](./examples/simple/main.go) is provided to demonstrate the mechan
 # Update flags with your values as needed:
 $ cd examples/simple/
 $ go build -v
-$ ./simple -db projects/v/instances/v/databases/v -table mytable -name mylock
+$ ./simple -db projects/{v}/instances/{v}/databases/{v} -table mytable -name mylock
 ```
 
 The leader process should output something like `leader active (me)`. You can then try to stop (Ctrl+C) that process and observe another one taking over as leader.
