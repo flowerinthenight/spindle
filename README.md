@@ -60,4 +60,4 @@ $ go build -v
 $ ./simple -db projects/v/instances/v/databases/v -table mytable -name mylock
 ```
 
-The leader process should ouput something like `leader active (me)`. You can then try to stop that leader process using Ctrl+C and observe another one taking over as leader.
+The leader process should ouput something like `leader active (me)`. You can then try to stop (Ctrl+C) that process and observe another one taking over as leader.
