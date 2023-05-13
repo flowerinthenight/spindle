@@ -12,6 +12,7 @@ import (
 
 	"cloud.google.com/go/spanner"
 	"github.com/google/uuid"
+	gaxv2 "github.com/googleapis/gax-go/v2"
 	"google.golang.org/api/iterator"
 )
 
@@ -34,7 +35,7 @@ type withDuration int64
 
 func (w withDuration) Apply(o *Lock) { o.duration = int64(w) }
 
-// WithDuration sets the locker's lease duration.
+// WithDuration sets the locker's lease duration. Minimum is 1s.
 func WithDuration(v int64) Option { return withDuration(v) }
 
 type withLogger struct{ l *log.Logger }
@@ -60,8 +61,36 @@ type Lock struct {
 // Run starts the main lock loop which can be canceled using the input context. You can
 // provide an optional done channel if you want to be notified when the loop is done.
 func (l *Lock) Run(ctx context.Context, done ...chan error) error {
-	ticker := time.NewTicker(time.Millisecond * time.Duration(l.duration))
-	quit := context.WithValue(ctx, struct{}{}, nil)
+	var leader int32 // for heartbeat
+	go func() {
+		min := (time.Millisecond * time.Duration(l.duration)) / 2
+		bo := gaxv2.Backoff{
+			Initial: time.Second,
+			Max:     time.Millisecond * time.Duration(l.duration),
+		}
+
+		for {
+			if ctx.Err() == context.Canceled {
+				return // not foolproof due to delay
+			}
+
+			switch {
+			case atomic.LoadInt32(&leader) > 0:
+				var tm time.Duration
+				for {
+					tm = bo.Pause()
+					if tm >= min {
+						break
+					}
+				}
+
+				l.heartbeat()
+				time.Sleep(tm)
+			default:
+				time.Sleep(time.Second)
+			}
+		}
+	}()
 
 	locked := func() bool {
 		// See if there is an active leased lock (could be us, could be somebody else).
@@ -72,8 +101,12 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 		}
 
 		if l.tokenString() != "" && l.tokenString() == tokenLocked {
+			atomic.AddInt32(&leader, 1)
+			if atomic.LoadInt32(&leader) == 1 {
+				l.heartbeat() // only on 1
+			}
+
 			l.logger.Println("leader active (me)")
-			l.heartbeat()
 			return true
 		}
 
@@ -86,11 +119,12 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 				// Sometimes, its going to go beyond duration+drift, even in normal
 				// situations. In that case, we will allow a new leader for now.
 				ovr := float64((diff - l.duration))
-				ok = ovr <= 2000 // allow 2s drift
+				ok = ovr <= 1000 // allow 1s drift
 			}
 
 			if ok {
 				l.logger.Println("leader active (not me)")
+				atomic.StoreInt32(&leader, 0) // reset heartbeat
 				return true
 			}
 		}
@@ -128,19 +162,17 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 					fmt.Fprintf(&q, "PENDING_COMMIT_TIMESTAMP(),")
 					fmt.Fprintf(&q, "PENDING_COMMIT_TIMESTAMP(),")
 					fmt.Fprintf(&q, "'%s')", l.id)
-					n, err := txn.Update(ctx, spanner.Statement{SQL: q.String()})
-					l.logger.Printf("%v insert: n=%v, err=%v", prefix, n, err)
+					_, err := txn.Update(ctx, spanner.Statement{SQL: q.String()})
 					return err
 				},
 			)
 
 			if err == nil {
 				l.setToken(&cts)
-				l.logger.Printf("%v leadertoken: %v", prefix, l.tokenString())
+				l.logger.Printf("%v got the lock: token=%v", prefix, l.tokenString())
 				return
 			}
 
-			l.logger.Printf("%v leader attempt failed: %v", prefix, err)
 			atomic.StoreInt32(&initial, 0)
 		}
 
@@ -166,8 +198,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 					fmt.Fprintf(&q, "insert %s ", l.table)
 					fmt.Fprintf(&q, "(name) ")
 					fmt.Fprintf(&q, "values ('%s')", nxt)
-					n, err := txn.Update(ctx, spanner.Statement{SQL: q.String()})
-					l.logger.Printf("%v insert: name=%v, n=%v, err=%v", prefix, nxt, n, err)
+					_, err := txn.Update(ctx, spanner.Statement{SQL: q.String()})
 					return err
 				})
 
@@ -192,7 +223,8 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 
 						_, err := txn.Update(ctx, stmt)
 						return err
-					})
+					},
+				)
 
 				if err != nil {
 					l.logger.Printf("%v update token failed: %v", prefix, err)
@@ -200,10 +232,13 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 				}
 
 				l.setToken(&nts) // doesn't mean we're leader
+				l.logger.Printf("%v got the lock: token=%v", prefix, l.tokenString())
 			}
 		}
 	}
 
+	ticker := time.NewTicker(time.Millisecond * time.Duration(l.duration))
+	quit := context.WithValue(ctx, struct{}{}, nil)
 	first := make(chan struct{}, 1)
 	first <- struct{}{}
 
@@ -393,7 +428,9 @@ func (l *Lock) heartbeat() {
 			}
 
 			_, err := txn.Update(ctx, stmt)
-			l.logger.Printf("heartbeat: id=%v, err=%v", l.id, err)
+			if err != nil {
+				l.logger.Printf("heartbeat failed: id=%v, err=%v", l.id, err)
+			}
 
 			// Best-effort cleanup.
 			rm := fmt.Sprintf("%v_", l.name)
@@ -424,6 +461,11 @@ func New(db *spanner.Client, table, name string, o ...Option) *Lock {
 	if lock.logger == nil {
 		prefix := fmt.Sprintf("[spindle/%v] ", lock.id)
 		lock.logger = log.New(os.Stdout, prefix, log.LstdFlags)
+	}
+
+	if lock.duration < 1000 {
+		lock.logger.Println("setting duration to 1s (minimum)")
+		lock.duration = 1000 // minimum
 	}
 
 	return lock

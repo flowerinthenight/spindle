@@ -30,7 +30,7 @@ func main() {
 
 	defer db.Close()
 	quit, cancel := context.WithCancel(ctx)
-	lock := spindle.New(db, *table, *name, spindle.WithDuration(5000))
+	lock := spindle.New(db, *table, *name, spindle.WithDuration(10000))
 
 	done := make(chan error, 1)
 	lock.Run(quit, done) // start main loop
