@@ -13,7 +13,7 @@ Similar projects:
 * [kettle](https://github.com/flowerinthenight/kettle) - Go
 
 ## Use cases
-One use case for this library is leader election. If you want one host/node/pod to be the leader within a cluster/group, you can achieve that with this library. When the leader fails, it will fail over to another host/node/pod within a specific timeout.
+One use case for this library is [leader election](https://en.wikipedia.org/wiki/Leader_election). If you want one host/node/pod to be the leader within a cluster/group, you can achieve that with this library. When the leader fails, it will fail over to another host/node/pod within a specific timeout.
 
 ## Usage
 At the moment, the table needs to be created beforehand using the following DDL (`locktable` is just an example):
