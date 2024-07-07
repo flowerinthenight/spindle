@@ -64,11 +64,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 	var leader int32 // for heartbeat
 	go func() {
 		min := (time.Millisecond * time.Duration(l.duration)) / 2
-		bo := gaxv2.Backoff{
-			Initial: time.Second,
-			Max:     time.Millisecond * time.Duration(l.duration),
-		}
-
+		bo := gaxv2.Backoff{Max: time.Millisecond * time.Duration(l.duration)}
 		for {
 			if ctx.Err() == context.Canceled {
 				return // not foolproof due to delay
@@ -137,7 +133,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 
 	attemptLeader := func() {
 		defer func(begin time.Time) {
-			l.logger.Printf("duration=%v, n=%v", time.Since(begin), l.Iterations())
+			l.logger.Printf("round %v took %v", l.Iterations(), time.Since(begin))
 			atomic.StoreInt32(&l.active, 1) // global
 			atomic.StoreInt32(&active, 0)   // local
 			atomic.AddInt64(&l.iter, 1)
@@ -169,7 +165,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 
 			if err == nil {
 				l.setToken(&cts)
-				l.logger.Printf("%v got the lock: token=%v", prefix, l.tokenString())
+				l.logger.Printf("%v got the lock with token [%v]", prefix, l.tokenString())
 				return
 			}
 
@@ -364,7 +360,6 @@ func (l *Lock) checkLock() (string, int64, error) {
 
 			diff = v.Diff.Int64
 			tokenLocked = v.Token.Time.UTC().Format(time.RFC3339Nano)
-			l.logger.Printf("diff=%v, token=%v", v.Diff.Int64, tokenLocked)
 		}
 
 		return retErr
