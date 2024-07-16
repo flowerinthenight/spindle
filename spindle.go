@@ -152,7 +152,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 		// Attempt first ever lock. The return commit timestamp will be our fencing
 		// token. Only one node should be able to do this successfully.
 		if initial.Load() == 1 {
-			prefix := "[init]"
+			prefix := "init:"
 			cts, err := l.db.ReadWriteTransaction(context.Background(),
 				func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 					var q strings.Builder
@@ -170,7 +170,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 
 			if err == nil {
 				l.setToken(&cts)
-				l.logger.Printf("%v got the lock with token [%v]", prefix, l.token())
+				l.logger.Printf("%v got the lock with token %v", prefix, l.token())
 				return
 			}
 
@@ -179,7 +179,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 
 		// For the succeeding lock attempts.
 		if initial.Load() == 0 {
-			prefix := "[next]"
+			prefix := "next:"
 			token, _, err := l.getCurrentToken()
 			if err != nil {
 				l.logger.Printf("%v getCurrentToken failed: %v", prefix, err)
@@ -234,7 +234,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 				}
 
 				l.setToken(&nts) // doesn't mean we're leader
-				l.logger.Printf("%v got the lock: token=%v", prefix, l.token())
+				l.logger.Printf("%v got the lock with token %v", prefix, l.token())
 			}
 		}
 	}
