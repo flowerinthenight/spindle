@@ -3,13 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"sync"
 	"time"
 
 	"cloud.google.com/go/spanner"
-	spindlelock "github.com/flowerinthenight/spindle/lock"
+	spindlelock "github.com/flowerinthenight/spindle/v2/lock"
 )
 
 func main() {
@@ -36,7 +36,7 @@ func main() {
 				Table:    "curmxdlock",
 				Name:     lockname,
 				Duration: 2000,
-				Logger:   log.New(ioutil.Discard, "", 0), // don't set if you want to see spindle logs
+				Logger:   log.New(io.Discard, "", 0), // don't set if you want to see spindle logs
 			})
 
 			ctx := context.Background()

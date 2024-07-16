@@ -9,7 +9,7 @@ import (
 	"syscall"
 
 	"cloud.google.com/go/spanner"
-	"github.com/flowerinthenight/spindle"
+	"github.com/flowerinthenight/spindle/v2"
 )
 
 func main() {
@@ -36,7 +36,7 @@ func main() {
 	lock.Run(quit, done) // start main loop
 
 	go func() {
-		sigch := make(chan os.Signal)
+		sigch := make(chan os.Signal, 1)
 		signal.Notify(sigch, syscall.SIGINT, syscall.SIGTERM)
 		<-sigch
 		cancel()
