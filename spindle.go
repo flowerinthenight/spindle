@@ -21,6 +21,8 @@ var (
 	ErrNotRunning = fmt.Errorf("spindle: not running")
 )
 
+type FnLeaderCallback func(data interface{}, msg []byte)
+
 type Option interface {
 	Apply(*Lock)
 }
@@ -38,6 +40,23 @@ func (w withDuration) Apply(o *Lock) { o.duration = int64(w) }
 
 // WithDuration sets the locker's lease duration in ms. Minimum is 1000ms.
 func WithDuration(v int64) Option { return withDuration(v) }
+
+type withLeaderCallback struct {
+	d interface{}
+	h FnLeaderCallback
+}
+
+func (w withLeaderCallback) Apply(o *Lock) {
+	o.cbLeaderData = w.d
+	o.cbLeader = w.h
+}
+
+// WithLeaderCallback sets the node's callback function when it a
+// leader is selected (or deselected). The msg arg for h will be
+// set to either 0 or 1.
+func WithLeaderCallback(d interface{}, h FnLeaderCallback) Option {
+	return withLeaderCallback{d, h}
+}
 
 type withLogger struct{ l *log.Logger }
 
@@ -57,6 +76,9 @@ type Lock struct {
 	mtx      *sync.Mutex
 	logger   *log.Logger
 	active   atomic.Int32
+
+	cbLeader     FnLeaderCallback // leader callback
+	cbLeaderData interface{}      // arbitrary data passed to fnLeader
 }
 
 // Run starts the main lock loop which can be canceled using the input context. You can
@@ -92,6 +114,12 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 		}
 	}()
 
+	leaderCallback := func(state int) {
+		if l.cbLeader != nil {
+			l.cbLeader(l.cbLeaderData, []byte(fmt.Sprintf("%d", state)))
+		}
+	}
+
 	locked := func() bool {
 		// See if there is an active leased lock (could be us, could be someone else).
 		token, diff, err := l.checkLock()
@@ -106,6 +134,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 				l.heartbeat() // only on 1
 			}
 
+			leaderCallback(1)
 			l.logger.Println("leader active (me)")
 			return true
 		}
@@ -123,6 +152,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 			}
 
 			if ok {
+				leaderCallback(0)
 				l.logger.Println("leader active (not me)")
 				leader.Store(0) // reset heartbeat
 				return true
