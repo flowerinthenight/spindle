@@ -36,7 +36,7 @@ type withDuration int64
 
 func (w withDuration) Apply(o *Lock) { o.duration = int64(w) }
 
-// WithDuration sets the locker's lease duration. Minimum is 1s.
+// WithDuration sets the locker's lease duration in ms. Minimum is 1000ms.
 func WithDuration(v int64) Option { return withDuration(v) }
 
 type withLogger struct{ l *log.Logger }
@@ -288,7 +288,8 @@ func (l *Lock) HasLock() (bool, uint64) {
 	return false, token
 }
 
-// HasLock2 is HasLock but return the leader id as well.
+// HasLock2 is the same as HasLock but returns the leader id as well. Recommended
+// instead of calling both HasLock() and Leader() functions.
 func (l *Lock) HasLock2() (bool, string, uint64) {
 	if l.active.Load() == 0 {
 		return false, "", 0
