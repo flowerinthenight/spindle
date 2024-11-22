@@ -288,6 +288,24 @@ func (l *Lock) HasLock() (bool, uint64) {
 	return false, token
 }
 
+// HasLock2 is HasLock but return the leader id as well.
+func (l *Lock) HasLock2() (bool, string, uint64) {
+	if l.active.Load() == 0 {
+		return false, "", 0
+	}
+
+	token, w, err := l.getCurrentToken()
+	if err != nil {
+		return false, "", 0
+	}
+
+	if token == l.token() {
+		return true, w, token
+	}
+
+	return false, w, token
+}
+
 // Leader returns the current leader id.
 func (l *Lock) Leader() (string, error) {
 	if l.active.Load() == 0 {
