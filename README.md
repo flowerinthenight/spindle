@@ -1,5 +1,5 @@
 ![main](https://github.com/flowerinthenight/spindle/workflows/main/badge.svg)
-[![Go Reference](https://pkg.go.dev/badge/github.com/flowerinthenight/spindle.svg)](https://pkg.go.dev/github.com/flowerinthenight/spindle)
+[![Go Reference](https://pkg.go.dev/badge/github.com/flowerinthenight/spindle.svg)](https://pkg.go.dev/github.com/flowerinthenight/spindle/v2)
 
 (This repo is mirrored to [https://codeberg.org/flowerinthenight/spindle](https://codeberg.org/flowerinthenight/spindle)).
 
