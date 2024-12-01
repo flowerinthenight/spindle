@@ -14,7 +14,7 @@ Similar projects:
 * [lockgate](https://github.com/werf/lockgate) - Go
 * [kettle](https://github.com/flowerinthenight/kettle) - Go
 
-#### A note on costs
+### A note on costs
 
 To be done.
 
