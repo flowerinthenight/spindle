@@ -16,7 +16,7 @@ Similar projects:
 
 ### A note on costs
 
-To be done.
+The smallest Spanner instance you can provision in GCP is 100 PUs (processing units), which is more than enough for this library. Without discounts, that's around ~$127/month. At [Alphaus](https://www.alphaus.cloud/), we buy discounts for Spanner; we only pay around ~$60/month. That's the cheapest option we had so far, even compared to Redis-based locking (which we used before), and way cheaper than the usual 3-node requirements for the likes of etcd, Zookeeper, Consul, etc.
 
 ## Use cases
 One use case for this library is [leader election](https://en.wikipedia.org/wiki/Leader_election). If you want one host/node/pod to be the leader within a cluster/group, you can achieve that with this library. When the leader fails, it will fail over to another host/node/pod within a specific timeout.
