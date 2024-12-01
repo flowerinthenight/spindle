@@ -14,6 +14,10 @@ Similar projects:
 * [lockgate](https://github.com/werf/lockgate) - Go
 * [kettle](https://github.com/flowerinthenight/kettle) - Go
 
+#### A note on costs
+
+To be done.
+
 ## Use cases
 One use case for this library is [leader election](https://en.wikipedia.org/wiki/Leader_election). If you want one host/node/pod to be the leader within a cluster/group, you can achieve that with this library. When the leader fails, it will fail over to another host/node/pod within a specific timeout.
 
