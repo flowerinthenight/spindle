@@ -81,3 +81,7 @@ $ ./simple -db projects/{v}/instances/{v}/databases/{v} -table mytable -name myl
 ```
 
 The leader process should output something like `leader active (me)`. You can then try to stop (Ctrl+C) that process and observe another one taking over as leader.
+
+## License
+
+This library is licensed under the [Apache 2.0 License](./LICENSE).
