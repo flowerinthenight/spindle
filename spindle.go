@@ -121,13 +121,15 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 	}
 
 	locked := func() bool {
-		// See if there is an active leased lock (could be us, could be someone else).
+		// See if there is an active leased lock
+		// (could be us, could be someone else).
 		token, diff, err := l.checkLock()
 		if err != nil {
 			l.logger.Println(err)
 			return true // err on safer side
 		}
 
+		// We are leader now.
 		if l.token() == token {
 			leader.Add(1)
 			if leader.Load() == 1 {
@@ -139,19 +141,20 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 			return true
 		}
 
+		// We're not leader now.
 		if diff > 0 {
-			var ok bool
+			var alive bool
 			switch {
 			case diff <= l.duration: // ideally
-				ok = true
+				alive = true
 			case diff > l.duration:
 				// Sometimes, its going to go beyond duration+drift, even in normal
 				// situations. In that case, we will allow a new leader for now.
 				ovr := float64((diff - l.duration))
-				ok = ovr <= 1000 // allow 1s drift
+				alive = ovr <= 1000 // allow 1s drift
 			}
 
-			if ok {
+			if alive {
 				leaderCallback(0)
 				l.logger.Println("leader active (not me)")
 				leader.Store(0) // reset heartbeat
@@ -269,7 +272,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 		}
 	}
 
-	ticker := time.NewTicker(time.Millisecond * time.Duration(l.duration))
+	tick := time.NewTicker(time.Millisecond * time.Duration(l.duration))
 	quit := context.WithValue(ctx, struct{}{}, nil)
 	first := make(chan struct{}, 1)
 	first <- struct{}{}
@@ -279,7 +282,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 			select {
 			case <-first: // immediately before 1st tick
 				go attemptLeader()
-			case <-ticker.C: // duration heartbeat
+			case <-tick.C: // duration heartbeat
 				if active.Load() == 1 {
 					continue
 				}
@@ -291,7 +294,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 				}
 
 				l.active.Store(0) // global
-				ticker.Stop()
+				tick.Stop()
 				return
 			}
 		}
