@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/spanner"
-	"github.com/flowerinthenight/spindle"
+	"github.com/flowerinthenight/spindle/v2"
 )
 
 var (

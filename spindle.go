@@ -21,7 +21,7 @@ var (
 	ErrNotRunning = fmt.Errorf("spindle: not running")
 )
 
-type FnLeaderCallback func(data interface{}, msg []byte)
+type FnLeaderCallback func(data any, msg []byte)
 
 type Option interface {
 	Apply(*Lock)
@@ -42,7 +42,7 @@ func (w withDuration) Apply(o *Lock) { o.duration = int64(w) }
 func WithDuration(v int64) Option { return withDuration(v) }
 
 type withLeaderCallback struct {
-	d interface{}
+	d any
 	h FnLeaderCallback
 }
 
@@ -54,7 +54,7 @@ func (w withLeaderCallback) Apply(o *Lock) {
 // WithLeaderCallback sets the node's callback function when it a
 // leader is selected (or deselected). The msg arg for h will be
 // set to either 0 or 1.
-func WithLeaderCallback(d interface{}, h FnLeaderCallback) Option {
+func WithLeaderCallback(d any, h FnLeaderCallback) Option {
 	return withLeaderCallback{d, h}
 }
 
@@ -78,7 +78,7 @@ type Lock struct {
 	active   atomic.Int32
 
 	cbLeader     FnLeaderCallback // leader callback
-	cbLeaderData interface{}      // arbitrary data passed to fnLeader
+	cbLeaderData any              // arbitrary data passed to fnLeader
 }
 
 // Run starts the main lock loop which can be canceled using the input context. You can
@@ -249,7 +249,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 						fmt.Fprintf(&q, "where name = @name")
 						stmt := spanner.Statement{
 							SQL: q.String(),
-							Params: map[string]interface{}{
+							Params: map[string]any{
 								"name":   l.name,
 								"token":  nts,
 								"writer": l.id,
@@ -394,7 +394,7 @@ func (l *Lock) checkLock() (uint64, int64, error) {
 		fmt.Fprintf(&q, "where name = @name")
 		stmt := spanner.Statement{
 			SQL:    q.String(),
-			Params: map[string]interface{}{"name": l.name},
+			Params: map[string]any{"name": l.name},
 		}
 
 		var retErr error
@@ -438,7 +438,7 @@ func (l *Lock) getCurrentToken() (uint64, string, error) {
 	fmt.Fprintf(&q, "where name = @name")
 	stmt := spanner.Statement{
 		SQL:    q.String(),
-		Params: map[string]interface{}{"name": l.name},
+		Params: map[string]any{"name": l.name},
 	}
 
 	var token, writer string
@@ -478,7 +478,7 @@ func (l *Lock) heartbeat() {
 			fmt.Fprintf(&q, "where name = @name")
 			stmt := spanner.Statement{
 				SQL:    q.String(),
-				Params: map[string]interface{}{"name": l.name},
+				Params: map[string]any{"name": l.name},
 			}
 
 			_, err := txn.Update(ctx, stmt)

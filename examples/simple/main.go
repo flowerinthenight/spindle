@@ -34,7 +34,7 @@ func main() {
 		*table,
 		*name,
 		spindle.WithDuration(10000),
-		spindle.WithLeaderCallback(nil, func(d interface{}, m []byte) {
+		spindle.WithLeaderCallback(nil, func(d any, m []byte) {
 			log.Println("callback:", string(m))
 		}),
 	)
