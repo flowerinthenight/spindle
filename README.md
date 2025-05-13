@@ -23,7 +23,7 @@ Similar projects:
 The smallest Spanner instance you can provision in GCP is 100 PUs (processing units), which is more than enough for this library. Without discounts, that's around ~$127/month (Tokyo region). At [Alphaus](https://www.alphaus.cloud/), we buy discounts for Spanner; we only pay around ~$60/month. Currently, it’s the cheapest way, surprisingly, to do distributed locking that we’ve tried so far, compared to Redis-based locking (which we used before), and way cheaper than the usual 3-node requirements for the likes of etcd, Zookeeper, Consul, etc.
 
 ## Use cases
-One use case for this library is [leader election](https://en.wikipedia.org/wiki/Leader_election). If you want one host/node/pod to be the leader within a cluster/group, you can achieve that with this library. When the leader fails, it will fail over to another host/node/pod within a specific timeout.
+One use case for this library is [leader election](https://en.wikipedia.org/wiki/Leader_election). If you want one host/node/pod to be the leader within a cluster/group, you can achieve that with this library. When the leader fails, it will fail over to another host/node/pod within a specific timeout. That said, you might want to check out [hedge](https://github.com/flowerinthenight/hedge), which is a memberlist tracking library built on top of this library.
 
 ## Usage
 At the moment, the table needs to be created beforehand using the following DDL (`locktable` is just an example):
