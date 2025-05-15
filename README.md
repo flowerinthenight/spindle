@@ -16,7 +16,7 @@ Similar projects:
 * [distributed-lock](https://github.com/alturkovic/distributed-lock) - Java
 * [redlock-rb](https://github.com/leandromoreira/redlock-rb) - Ruby
 * [lockgate](https://github.com/werf/lockgate) - Go
-* [kettle](https://github.com/flowerinthenight/kettle) - Go
+* [kettle](https://github.com/flowerinthenight/kettle) (via Redis) - Go
 
 ### A note on costs
 
