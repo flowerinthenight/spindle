@@ -43,18 +43,18 @@ jobs:
 
     - uses: actions/checkout@v2
 
-    - name: 'Get dependencies'
-      run: |
-        go get -v -t -d ./...
-        if [ -f Gopkg.toml ]; then
-            curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
-            dep ensure
-        fi
+    # - name: 'Get dependencies'
+    #   run: |
+    #     go get -v -t -d ./...
+    #     if [ -f Gopkg.toml ]; then
+    #         curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
+    #         dep ensure
+    #     fi
 
     - name: 'Test using emulator'
       run: |
-        curl -O https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-sdk-400.0.0-linux-x86_64.tar.gz
-        tar xvzf google-cloud-sdk-400.0.0-linux-x86_64.tar.gz
+        curl -O https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-sdk-558.0.0-linux-x86_64.tar.gz
+        tar xvzf google-cloud-sdk-558.0.0-linux-x86_64.tar.gz
         ./google-cloud-sdk/install.sh --quiet
         gcloud config configurations create emulator
         gcloud config set auth/disable_credentials true
