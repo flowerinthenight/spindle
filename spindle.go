@@ -544,16 +544,19 @@ func (l *Lock) ensureLockTable() error {
 		}
 	}(&err)
 
-	ddl := fmt.Sprintf(`CREATE TABLE %s (
-		name STRING(MAX) NOT NULL,
-		heartbeat TIMESTAMP OPTIONS (allow_commit_timestamp=true),
-		token TIMESTAMP OPTIONS (allow_commit_timestamp=true),
-		writer STRING(MAX)
-	) PRIMARY KEY (name)`, l.table)
+	var ddl strings.Builder
+	fmt.Fprintf(&ddl, "CREATE TABLE %s (", l.table)
+	fmt.Fprintf(&ddl, "name STRING(MAX) NOT NULL,")
+	fmt.Fprintf(&ddl, "heartbeat TIMESTAMP OPTIONS (allow_commit_timestamp=true),")
+	fmt.Fprintf(&ddl, "token TIMESTAMP OPTIONS (allow_commit_timestamp=true),")
+	fmt.Fprintf(&ddl, "writer STRING(MAX),")
+	fmt.Fprintf(&ddl, "expire TIMESTAMP AS (")
+	fmt.Fprintf(&ddl, "TIMESTAMP_ADD(heartbeat, INTERVAL %v SECOND))", duration.Seconds())
+	fmt.Fprintf(&ddl, ") PRIMARY KEY (name)")
 
 	op, err := l.dbAdmin.UpdateDatabaseDdl(ctx, &databasepb.UpdateDatabaseDdlRequest{
 		Database:   l.dbPath,
-		Statements: []string{ddl},
+		Statements: []string{ddl.String()},
 	})
 
 	if err != nil {
