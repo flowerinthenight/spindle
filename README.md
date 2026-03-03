@@ -46,20 +46,20 @@ import (
 func main() {
     db, _ := spanner.NewClient(context.Background(), "your/database")
     defer db.Close()
-    
+
     done := make(chan error, 1) // notify me when done (optional)
     quit, cancel := context.WithCancel(context.Background()) // for cancel
-    
+
     // Create the lock object using a 5s lease duration using locktable above.
     lock := spindle.New(db, "locktable", "mylock", spindle.WithDuration(5000))
-    
+
     lock.Run(quit, done) // start the main loop, async
-    
+
     time.Sleep(time.Second * 20)
     locked, token := lock.HasLock()
     log.Println("HasLock:", locked, token)
     time.Sleep(time.Second * 20)
-    
+
     cancel()
     <-done
 }

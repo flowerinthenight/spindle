@@ -9,6 +9,7 @@ import (
 	"syscall"
 
 	"cloud.google.com/go/spanner"
+	admin "cloud.google.com/go/spanner/admin/database/apiv1"
 	"github.com/flowerinthenight/spindle/v2"
 )
 
@@ -19,8 +20,7 @@ func main() {
 	flag.Parse()
 
 	// To run, update the database name, table name, and, optionally, the lock name.
-	// It is assumed that your environment is able to authenticate to Spanner via
-	// GOOGLE_APPLICATION_CREDENTIALS environment variable.
+	// Auth depends on environment's ADC.
 	ctx := context.Background()
 	db, err := spanner.NewClient(ctx, *dbstr)
 	if err != nil {
@@ -29,11 +29,20 @@ func main() {
 	}
 
 	defer db.Close()
+	dbAdminClient, err := admin.NewDatabaseAdminClient(ctx)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	defer dbAdminClient.Close()
 	quit, cancel := context.WithCancel(ctx)
-	lock := spindle.New(db,
+	lock := spindle.New(
+		db,
 		*table,
 		*name,
 		spindle.WithDuration(10000),
+		spindle.WithDatabaseAdminClient(dbAdminClient, *dbstr),
 		spindle.WithLeaderCallback(nil, func(d any, m []byte) {
 			log.Println("callback:", string(m))
 		}),
@@ -49,5 +58,8 @@ func main() {
 		cancel()
 	}()
 
-	<-done
+	err = <-done
+	if err != nil {
+		log.Println(err)
+	}
 }

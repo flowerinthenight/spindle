@@ -11,10 +11,14 @@ import (
 	"time"
 
 	"cloud.google.com/go/spanner"
+	admin "cloud.google.com/go/spanner/admin/database/apiv1"
+	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	"github.com/cespare/xxhash/v2"
 	"github.com/google/uuid"
 	gaxv2 "github.com/googleapis/gax-go/v2"
 	"google.golang.org/api/iterator"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 var (
@@ -58,6 +62,23 @@ func WithLeaderCallback(d any, h FnLeaderCallback) Option {
 	return withLeaderCallback{d, h}
 }
 
+type withDbAdminClient struct {
+	c  *admin.DatabaseAdminClient
+	db string
+}
+
+func (w withDbAdminClient) Apply(o *Lock) {
+	o.dbAdmin = w.c
+	o.dbPath = w.db
+}
+
+// WithDatabaseAdminClient sets Lock's database admin client, which is used for creating
+// the lock table if it doesn't exist. Create table permissions required. 'db' is the
+// database path (e.g. projects/test-project/instances/test-instance/databases/testdb).
+func WithDatabaseAdminClient(c *admin.DatabaseAdminClient, db string) Option {
+	return withDbAdminClient{c, db}
+}
+
 type withLogger struct{ l *log.Logger }
 
 func (w withLogger) Apply(o *Lock) { o.logger = w.l }
@@ -67,6 +88,8 @@ func WithLogger(v *log.Logger) Option { return withLogger{v} }
 
 type Lock struct {
 	db       *spanner.Client
+	dbAdmin  *admin.DatabaseAdminClient
+	dbPath   string // needed for dbAdmin
 	table    string // table name
 	name     string // lock name
 	id       string // unique id for this instance
@@ -84,6 +107,15 @@ type Lock struct {
 // Run starts the main lock loop which can be canceled using the input context. You can
 // provide an optional done channel if you want to be notified when the loop is done.
 func (l *Lock) Run(ctx context.Context, done ...chan error) error {
+	err := l.ensureLockTable()
+	if err != nil {
+		if len(done) > 0 {
+			done[0] <- err
+		}
+
+		return err
+	}
+
 	var leader atomic.Int32 // for heartbeat
 	go func() {
 		min := (time.Millisecond * time.Duration(l.duration)) / 2
@@ -495,6 +527,87 @@ func (l *Lock) heartbeat() {
 			return err
 		},
 	)
+}
+
+func (l *Lock) ensureLockTable() error {
+	if l.dbAdmin == nil {
+		return nil // assume table exists if no admin client provided
+	}
+
+	var err error
+	ctx := context.Background()
+	duration := time.Millisecond * time.Duration(l.duration)
+	l.table = fmt.Sprintf("%s_%s", l.table, formatDuration(duration))
+	defer func(e *error) {
+		if *e != nil {
+			l.logger.Println("lock table:", l.table)
+		}
+	}(&err)
+
+	ddl := fmt.Sprintf(`CREATE TABLE %s (
+		name STRING(MAX) NOT NULL,
+		heartbeat TIMESTAMP OPTIONS (allow_commit_timestamp=true),
+		token TIMESTAMP OPTIONS (allow_commit_timestamp=true),
+		writer STRING(MAX)
+	) PRIMARY KEY (name)`, l.table)
+
+	op, err := l.dbAdmin.UpdateDatabaseDdl(ctx, &databasepb.UpdateDatabaseDdlRequest{
+		Database:   l.dbPath,
+		Statements: []string{ddl},
+	})
+
+	if err != nil {
+		if isAlreadyExists(err) {
+			return nil // someone else is already creating it or it exists
+		}
+
+		return fmt.Errorf("spindle: failed to start DDL for %s: %w", l.table, err)
+	}
+
+	err = op.Wait(ctx)
+	if err != nil {
+		if isAlreadyExists(err) {
+			return nil // someone else is already creating it or it exists
+		}
+
+		return fmt.Errorf("spindle: DDL failed for %s: %w", l.table, err)
+	}
+
+	l.logger.Println("lock table ensured:", l.table)
+	return nil
+}
+
+func isAlreadyExists(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	return status.Code(err) == codes.AlreadyExists ||
+		strings.Contains(strings.ToLower(err.Error()), "already exists") ||
+		strings.Contains(strings.ToLower(err.Error()), "duplicate name in schema")
+}
+
+func formatDuration(d time.Duration) string {
+	d = d.Round(time.Second)
+	if d <= 0 {
+		return "0s"
+	}
+
+	var b strings.Builder
+	h := int(d.Hours())
+	m := int(d.Minutes()) % 60
+	s := int(d.Seconds()) % 60
+	if h > 0 {
+		fmt.Fprintf(&b, "%dh", h)
+	}
+	if m > 0 {
+		fmt.Fprintf(&b, "%dm", m)
+	}
+	if s > 0 || b.Len() == 0 {
+		fmt.Fprintf(&b, "%ds", s)
+	}
+
+	return b.String()
 }
 
 // New returns a lock object with a default of 10s lease duration.
