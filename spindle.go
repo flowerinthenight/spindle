@@ -148,7 +148,9 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) error {
 
 	leaderCallback := func(state int) {
 		if l.cbLeader != nil {
-			l.cbLeader(l.cbLeaderData, []byte(fmt.Sprintf("%d", state)))
+			var buf []byte
+			buf = fmt.Appendf(buf, "%d", state)
+			l.cbLeader(l.cbLeaderData, buf)
 		}
 	}
 
