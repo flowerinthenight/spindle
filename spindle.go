@@ -416,7 +416,6 @@ type diffT struct {
 func (l *Lock) checkLock() (uint64, int64, error) {
 	var token string
 	var diff int64
-
 	err := func() error {
 		var q strings.Builder
 		fmt.Fprintf(&q, "select ")
@@ -560,7 +559,7 @@ func (l *Lock) ensureLockTable() error {
 	})
 
 	if err != nil {
-		if isAlreadyExists(err) {
+		if errAlreadyExists(err) {
 			err = nil // someone else is already creating it or it exists
 			return err
 		}
@@ -570,7 +569,7 @@ func (l *Lock) ensureLockTable() error {
 
 	err = op.Wait(ctx)
 	if err != nil {
-		if isAlreadyExists(err) {
+		if errAlreadyExists(err) {
 			err = nil // someone else is already creating it or it exists
 			return err
 		}
@@ -581,7 +580,7 @@ func (l *Lock) ensureLockTable() error {
 	return nil
 }
 
-func isAlreadyExists(err error) bool {
+func errAlreadyExists(err error) bool {
 	if err == nil {
 		return false
 	}
