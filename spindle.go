@@ -539,7 +539,7 @@ func (l *Lock) ensureLockTable() error {
 	duration := time.Millisecond * time.Duration(l.duration)
 	l.table = fmt.Sprintf("%s_%s", l.table, formatDuration(duration))
 	defer func(e *error) {
-		if *e != nil {
+		if *e == nil {
 			l.logger.Println("lock table:", l.table)
 		}
 	}(&err)
@@ -561,7 +561,8 @@ func (l *Lock) ensureLockTable() error {
 
 	if err != nil {
 		if isAlreadyExists(err) {
-			return nil // someone else is already creating it or it exists
+			err = nil // someone else is already creating it or it exists
+			return err
 		}
 
 		return fmt.Errorf("spindle: failed to start DDL for %s: %w", l.table, err)
@@ -570,13 +571,13 @@ func (l *Lock) ensureLockTable() error {
 	err = op.Wait(ctx)
 	if err != nil {
 		if isAlreadyExists(err) {
-			return nil // someone else is already creating it or it exists
+			err = nil // someone else is already creating it or it exists
+			return err
 		}
 
 		return fmt.Errorf("spindle: DDL failed for %s: %w", l.table, err)
 	}
 
-	l.logger.Println("lock table ensured:", l.table)
 	return nil
 }
 
