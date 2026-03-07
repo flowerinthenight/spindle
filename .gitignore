@@ -5,5 +5,7 @@
 *.dylib
 *.test
 *.out
+*.jar
 examples/simple/simple
 examples/testlock/testlock
+states/
