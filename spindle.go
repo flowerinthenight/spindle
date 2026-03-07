@@ -13,7 +13,6 @@ import (
 	"cloud.google.com/go/spanner"
 	admin "cloud.google.com/go/spanner/admin/database/apiv1"
 	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
-	"github.com/cespare/xxhash/v2"
 	"github.com/google/uuid"
 	gaxv2 "github.com/googleapis/gax-go/v2"
 	"google.golang.org/api/iterator"
@@ -400,8 +399,8 @@ func (l *Lock) token() uint64 {
 		return 0
 	}
 
-	v := (*l.ttoken).UTC().Format(time.RFC3339Nano)
-	return xxhash.Sum64String(v)
+	v := (*l.ttoken).UnixNano()
+	return uint64(v)
 }
 
 func (l *Lock) setToken(v *time.Time) {
@@ -416,8 +415,7 @@ type diffT struct {
 }
 
 func (l *Lock) checkLock() (uint64, int64, error) {
-	var token string
-	var diff int64
+	var token, diff int64
 	err := func() error {
 		var q strings.Builder
 		fmt.Fprintf(&q, "select ")
@@ -451,13 +449,13 @@ func (l *Lock) checkLock() (uint64, int64, error) {
 			}
 
 			diff = v.Diff.Int64
-			token = v.Token.Time.UTC().Format(time.RFC3339Nano)
+			token = v.Token.Time.UnixNano()
 		}
 
 		return retErr
 	}()
 
-	return xxhash.Sum64String(token), diff, err
+	return uint64(token), diff, err
 }
 
 type tokenT struct {
@@ -474,7 +472,8 @@ func (l *Lock) getCurrentToken() (uint64, string, error) {
 		Params: map[string]any{"name": l.name},
 	}
 
-	var token, writer string
+	var token int64
+	var writer string
 	iter := l.db.Single().Query(context.Background(), stmt)
 	defer iter.Stop()
 	for {
@@ -493,13 +492,13 @@ func (l *Lock) getCurrentToken() (uint64, string, error) {
 			return 0, writer, err
 		}
 
-		token = v.Token.Time.UTC().Format(time.RFC3339Nano)
+		token = v.Token.Time.UnixNano()
 		if v.Writer.Valid {
 			writer = v.Writer.String()
 		}
 	}
 
-	return xxhash.Sum64String(token), writer, nil
+	return uint64(token), writer, nil
 }
 
 func (l *Lock) heartbeat() {
@@ -550,9 +549,7 @@ func (l *Lock) ensureLockTable() error {
 	fmt.Fprintf(&ddl, "name STRING(MAX) NOT NULL,")
 	fmt.Fprintf(&ddl, "heartbeat TIMESTAMP OPTIONS (allow_commit_timestamp=true),")
 	fmt.Fprintf(&ddl, "token TIMESTAMP OPTIONS (allow_commit_timestamp=true),")
-	fmt.Fprintf(&ddl, "writer STRING(MAX),")
-	fmt.Fprintf(&ddl, "expire TIMESTAMP AS (")
-	fmt.Fprintf(&ddl, "TIMESTAMP_ADD(heartbeat, INTERVAL %v SECOND))", duration.Seconds())
+	fmt.Fprintf(&ddl, "writer STRING(MAX)")
 	fmt.Fprintf(&ddl, ") PRIMARY KEY (name)")
 
 	op, err := l.dbAdmin.UpdateDatabaseDdl(ctx, &databasepb.UpdateDatabaseDdlRequest{
