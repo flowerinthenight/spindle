@@ -61,6 +61,17 @@ func main() {
 
             // Do leader work using ctx; cancelled when leadership is lost.
             // Use token as a fencing token for downstream conditional writes.
+            // IMPORTANT: You must honor 'ctx' to avoid split-brain scenarios.
+            go func() {
+                for {
+                    select {
+                    case <-ctx.Done():
+                        return // leadership lost, stop working
+                    case <-time.After(1 * time.Second):
+                        // Do leader work here...
+                    }
+                }
+            }()
         }),
     )
 
