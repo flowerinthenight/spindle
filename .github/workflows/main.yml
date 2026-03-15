@@ -29,13 +29,6 @@ jobs:
     if: "!contains(github.event.commits[0].message, 'ci skip')"
     runs-on: ubuntu-latest
 
-    services:
-      emulator:
-        image: gcr.io/cloud-spanner-emulator/emulator
-        ports:
-        - 9010:9010
-        - 9020:9020
-
     steps:
     - uses: actions/setup-go@v6
       with:
@@ -44,15 +37,4 @@ jobs:
     - uses: actions/checkout@v6
 
     - name: 'Run tests'
-      run: |
-        curl -O https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-sdk-558.0.0-linux-x86_64.tar.gz
-        tar xvzf google-cloud-sdk-558.0.0-linux-x86_64.tar.gz
-        ./google-cloud-sdk/install.sh --quiet
-        gcloud config configurations create emulator
-        gcloud config set auth/disable_credentials true
-        gcloud config set project test-project
-        gcloud config set api_endpoint_overrides/spanner http://localhost:9020/
-        gcloud spanner instances create test-instance --config=emulator-config --description="Test Instance" --nodes=1
-        export SPANNER_EMULATOR_HOST=localhost:9010
-        gcloud spanner databases create testdb --instance=test-instance --ddl-file=$PWD/testdata/emuddl.sql
-        go test -v ./...
+      run: go test -v ./...

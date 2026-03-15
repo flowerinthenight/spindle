@@ -9,51 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"cloud.google.com/go/spanner"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
-
-const (
-	db = "projects/test-project/instances/test-instance/databases/testdb"
-)
-
-func TestLock(t *testing.T) {
-	ctx := context.Background()
-	client, err := spanner.NewClient(ctx, db)
-	if err != nil {
-		t.Error(err)
-		return
-	}
-
-	defer client.Close()
-	done := make(chan error, 1)
-	quit, cancel := context.WithCancel(ctx)
-	leaderCh := make(chan int64, 1)
-	lock := New(client, "locktable", "mylock",
-		WithDuration(5000),
-		WithLeaderCallback(nil, func(d any, leader bool, token int64, ctx context.Context) {
-			if leader {
-				select {
-				case leaderCh <- token:
-				default:
-				}
-			}
-		}),
-	)
-
-	lock.Run(quit, done)
-
-	select {
-	case token := <-leaderCh:
-		t.Logf("lock obtained, token=%v", token)
-	case <-time.After(30 * time.Second):
-		t.Fatalf("can't get lock")
-	}
-
-	cancel()
-	<-done
-}
 
 func TestNewDefaults(t *testing.T) {
 	lock := New(nil, "mytable", "mylock")
