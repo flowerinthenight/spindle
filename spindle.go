@@ -19,7 +19,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-type FnLeaderCallback func(data any, leader bool, token int64)
+type FnLeaderCallback func(data any, leader bool, token int64, ctx context.Context)
 
 type Option interface {
 	Apply(*Lock)
@@ -49,9 +49,10 @@ func (w withLeaderCallback) Apply(o *Lock) {
 	o.cbLeader = w.h
 }
 
-// WithLeaderCallback sets the node's callback function when it a
-// leader is selected (or deselected). The msg arg for h will be
-// set to either 0 or 1.
+// WithLeaderCallback sets the node's callback function when a leader is
+// selected (or deselected). When leader is true, the provided context is
+// cancelled when leadership is lost. Use the token as a fencing token for
+// downstream writes.
 func WithLeaderCallback(d any, h FnLeaderCallback) Option {
 	return withLeaderCallback{d, h}
 }
@@ -116,29 +117,44 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 	type cbEvent struct {
 		leader bool
 		token  int64
+		ctx    context.Context
 	}
 
 	cbCh := make(chan cbEvent, 2)
 	go func() {
 		for ev := range cbCh {
 			if l.cbLeader != nil {
-				l.cbLeader(l.cbLeaderData, ev.leader, ev.token)
+				l.cbLeader(l.cbLeaderData, ev.leader, ev.token, ev.ctx)
 			}
 		}
 	}()
+
+	var leaderCancel context.CancelFunc
 
 	leaderCallback := func(state int) {
 		if l.cbLeader == nil {
 			return
 		}
+
+		var evCtx context.Context
+		if state == 1 {
+			evCtx, leaderCancel = context.WithCancel(ctx)
+		} else {
+			if leaderCancel != nil {
+				leaderCancel()
+				leaderCancel = nil
+			}
+			evCtx = context.Background()
+		}
+
 		select {
-		case cbCh <- cbEvent{state == 1, l.token()}:
+		case cbCh <- cbEvent{state == 1, l.token(), evCtx}:
 		default:
 			select {
 			case <-cbCh:
 			default:
 			}
-			cbCh <- cbEvent{state == 1, l.token()}
+			cbCh <- cbEvent{state == 1, l.token(), evCtx}
 		}
 	}
 
@@ -210,7 +226,10 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 		timer := time.NewTimer(0)
 		defer timer.Stop()
 
-		buffer := 800 * time.Millisecond
+		bufferFloor := 500 * time.Millisecond
+		bufferCeil := leaseDuration / 2
+		var avgLatency time.Duration
+		buffer := 800 * time.Millisecond // initial conservative value
 		var expire time.Duration
 		var leader bool
 		var wasLeader bool
@@ -221,6 +240,9 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 			select {
 			case <-ctx.Done():
 				if leader {
+					if leaderCancel != nil {
+						leaderCancel()
+					}
 					l.release()
 				}
 				return
@@ -236,6 +258,22 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 				}
 			} else {
 				leader, token = attemptLeader()
+			}
+
+			// Update buffer based on measured Spanner latency.
+			latency := time.Since(start)
+			if avgLatency == 0 {
+				avgLatency = latency
+			} else {
+				avgLatency = time.Duration(float64(avgLatency)*0.7 + float64(latency)*0.3)
+			}
+
+			buffer = avgLatency * 3
+			if buffer < bufferFloor {
+				buffer = bufferFloor
+			}
+			if buffer > bufferCeil {
+				buffer = bufferCeil
 			}
 
 			if leader != wasLeader || firstRun {
@@ -260,7 +298,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 				expire = buffer
 			}
 
-			l.logger.Printf("expire=%v, leader=%v (%v)", expire, leader, l.Iterations())
+			l.logger.Printf("expire=%v, buffer=%v, leader=%v (%v)", expire, buffer, leader, l.Iterations())
 			timer.Reset(expire)
 
 			l.logger.Printf("round %v took %v", l.Iterations(), time.Since(start))
@@ -296,17 +334,13 @@ func (l *Lock) setToken(v *time.Time) {
 func (l *Lock) release() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_, err := l.db.ReadWriteTransaction(ctx,
+	l.db.ReadWriteTransaction(ctx,
 		func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 			return txn.BufferWrite([]*spanner.Mutation{
 				spanner.Delete(l.table, spanner.Key{l.name}),
 			})
 		},
 	)
-
-	if err != nil {
-		l.logger.Printf("release failed: %v", err)
-	}
 }
 
 func (l *Lock) heartbeat(ctx context.Context) error {
@@ -356,8 +390,6 @@ func (l *Lock) ensureLockTable() error {
 
 	var err error
 	ctx := context.Background()
-	duration := time.Millisecond * time.Duration(l.duration)
-	l.table = fmt.Sprintf("%s_%s", l.table, formatDuration(duration))
 	defer func(e *error) {
 		if *e == nil {
 			l.logger.Println("lock table:", l.table)
@@ -367,7 +399,6 @@ func (l *Lock) ensureLockTable() error {
 	var ddl strings.Builder
 	fmt.Fprintf(&ddl, "CREATE TABLE %s (", l.table)
 	fmt.Fprintf(&ddl, "name STRING(MAX) NOT NULL,")
-	fmt.Fprintf(&ddl, "heartbeat TIMESTAMP OPTIONS (allow_commit_timestamp=true),")
 	fmt.Fprintf(&ddl, "token TIMESTAMP OPTIONS (allow_commit_timestamp=true),")
 	fmt.Fprintf(&ddl, "writer STRING(MAX)")
 	fmt.Fprintf(&ddl, ") PRIMARY KEY (name)")
@@ -407,29 +438,6 @@ func errAlreadyExists(err error) bool {
 	return status.Code(err) == codes.AlreadyExists ||
 		strings.Contains(strings.ToLower(err.Error()), "already exists") ||
 		strings.Contains(strings.ToLower(err.Error()), "duplicate name in schema")
-}
-
-func formatDuration(d time.Duration) string {
-	d = d.Round(time.Second)
-	if d <= 0 {
-		return "0s"
-	}
-
-	var b strings.Builder
-	h := int(d.Hours())
-	m := int(d.Minutes()) % 60
-	s := int(d.Seconds()) % 60
-	if h > 0 {
-		fmt.Fprintf(&b, "%dh", h)
-	}
-	if m > 0 {
-		fmt.Fprintf(&b, "%dm", m)
-	}
-	if s > 0 || b.Len() == 0 {
-		fmt.Fprintf(&b, "%ds", s)
-	}
-
-	return b.String()
 }
 
 // New returns a lock object with a default of 10s lease duration.

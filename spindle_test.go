@@ -32,7 +32,7 @@ func TestLock(t *testing.T) {
 	leaderCh := make(chan int64, 1)
 	lock := New(client, "locktable", "mylock",
 		WithDuration(5000),
-		WithLeaderCallback(nil, func(d any, leader bool, token int64) {
+		WithLeaderCallback(nil, func(d any, leader bool, token int64, ctx context.Context) {
 			if leader {
 				select {
 				case leaderCh <- token:
@@ -166,7 +166,7 @@ func TestLeaderCallback(t *testing.T) {
 	var mu sync.Mutex
 	var events []event
 	lock := New(nil, "t", "n",
-		WithLeaderCallback(nil, func(d any, leader bool, token int64) {
+		WithLeaderCallback(nil, func(d any, leader bool, token int64, ctx context.Context) {
 			mu.Lock()
 			events = append(events, event{leader, token})
 			mu.Unlock()
@@ -179,8 +179,8 @@ func TestLeaderCallback(t *testing.T) {
 
 	ts := time.Now()
 	lock.setToken(&ts)
-	lock.cbLeader(lock.cbLeaderData, true, lock.token())
-	lock.cbLeader(lock.cbLeaderData, false, 0)
+	lock.cbLeader(lock.cbLeaderData, true, lock.token(), context.Background())
+	lock.cbLeader(lock.cbLeaderData, false, 0, context.Background())
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -195,31 +195,3 @@ func TestLeaderCallback(t *testing.T) {
 	}
 }
 
-func TestFormatDuration(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    time.Duration
-		expected string
-	}{
-		{"Exactly Seconds", 2 * time.Second, "2s"},
-		{"Exactly Minutes", 10 * time.Minute, "10m"},
-		{"Exactly Hours", 5 * time.Hour, "5h"},
-		{"Minutes and Seconds", 10*time.Minute + 30*time.Second, "10m30s"},
-		{"Hours and Minutes", 2*time.Hour + 15*time.Minute, "2h15m"},
-		{"Hours and Seconds", 1*time.Hour + 45*time.Second, "1h45s"},
-		{"Full Combo", 1*time.Hour + 30*time.Minute + 15*time.Second, "1h30m15s"},
-		{"Large Duration", 25 * time.Hour, "25h"},
-		{"Sub-second Rounding", 2*time.Second + 500*time.Millisecond, "3s"},
-		{"Zero Duration", 0, "0s"},
-		{"Negative Duration", -5 * time.Second, "0s"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			actual := formatDuration(tt.input)
-			if actual != tt.expected {
-				t.Errorf("formatDuration(%v) = %s; want %s", tt.input, actual, tt.expected)
-			}
-		})
-	}
-}

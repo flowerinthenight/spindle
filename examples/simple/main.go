@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"cloud.google.com/go/spanner"
 	admin "cloud.google.com/go/spanner/admin/database/apiv1"
@@ -37,14 +39,43 @@ func main() {
 
 	defer dbAdminClient.Close()
 	quit, cancel := context.WithCancel(ctx)
+
+	// Try running multiple instances of this binary in separate terminals
+	// pointing to the same database, table, and lock name. You should see:
+	// - Only one instance logs "doing leader work" at a time.
+	// - When you Ctrl+C the leader, it releases the lock and shuts down.
+	// - Another instance picks up leadership and starts doing work.
+	id := fmt.Sprintf("node-%d", os.Getpid())
 	lock := spindle.New(
 		db,
 		*table,
 		*name,
+		spindle.WithId(id),
 		spindle.WithDuration(10000),
 		spindle.WithDatabaseAdminClient(dbAdminClient, *dbstr),
-		spindle.WithLeaderCallback(nil, func(d any, leader bool, token int64) {
-			log.Printf("callback: leader=%v, token=%v", leader, token)
+		spindle.WithLeaderCallback(nil, func(d any, leader bool, token int64, ctx context.Context) {
+			if !leader {
+				log.Printf("[%s] lost leadership, stopping work", id)
+				return
+			}
+
+			log.Printf("[%s] became leader, token=%v", id, token)
+
+			// Do leader work using ctx; cancelled when leadership is lost.
+			// Use token as a fencing token for downstream conditional writes.
+			go func() {
+				ticker := time.NewTicker(2 * time.Second)
+				defer ticker.Stop()
+				for {
+					select {
+					case <-ctx.Done():
+						log.Printf("[%s] leader context cancelled", id)
+						return
+					case <-ticker.C:
+						log.Printf("[%s] doing leader work (token=%v)", id, token)
+					}
+				}
+			}()
 		}),
 	)
 
@@ -63,5 +94,5 @@ func main() {
 		log.Println(err)
 	}
 
-	log.Println("lock released, shutting down")
+	log.Printf("[%s] shut down", id)
 }
