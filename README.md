@@ -34,7 +34,7 @@ CREATE TABLE locktable (
 ) PRIMARY KEY (name)
 ```
 
-After creating the lock object, you will call the `Run(...)` function which will attempt to acquire a named lock at a regular interval (lease duration) until cancelled. A `HasLock()` function is provided which returns true (along with the lock token) if the lock is successfully acquired. Something like:
+After creating the lock object, you will call the `Run(...)` function which will attempt to acquire a named lock at a regular interval (lease duration) until cancelled. You can provide a leader callback via `WithLeaderCallback(...)` which will be called when leadership is acquired or lost. Something like:
 
 ```go
 import (
@@ -43,22 +43,33 @@ import (
 )
 
 func main() {
-    db, _ := spanner.NewClient(context.Background(), "your/database")
+    db, _ := spanner.NewClient(ctx, "your/database")
     defer db.Close()
+    dbAdmin, _ := admin.NewDatabaseAdminClient(ctx)
+    defer dbAdmin.Close()
 
-    done := make(chan error, 1) // notify me when done (optional)
-    quit, cancel := context.WithCancel(context.Background()) // for cancel
+    quit, cancel := context.WithCancel(ctx)
+    lock := spindle.New(
+        db, "locktable", "mylock",
+        spindle.WithDuration(10000),
+        spindle.WithDatabaseAdminClient(dbAdmin, "your/database"),
+        spindle.WithLeaderCallback(nil, func(d any, leader bool, token int64, ctx context.Context) {
+            if !leader {
+                return // lost leadership
+            }
 
-    // Create the lock object using a 5s lease duration using locktable above.
-    lock := spindle.New(db, "locktable", "mylock", spindle.WithDuration(5000))
+            // Do leader work using ctx; cancelled when leadership is lost.
+            // Use token as a fencing token for downstream conditional writes.
+        }),
+    )
 
-    lock.Run(quit, done) // start the main loop, async
+    done := make(chan error, 1)
+    lock.Run(quit, done) // start main loop
 
-    time.Sleep(time.Second * 20)
-    locked, token := lock.HasLock()
-    log.Println("HasLock:", locked, token)
-    time.Sleep(time.Second * 20)
-
+    // On signal, cancel triggers lock release if this node is the leader.
+    sigch := make(chan os.Signal, 1)
+    signal.Notify(sigch, syscall.SIGINT, syscall.SIGTERM)
+    <-sigch
     cancel()
     <-done
 }
