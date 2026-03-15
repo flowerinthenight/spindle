@@ -127,15 +127,13 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 	cbCh := make(chan cbEvent, 2)
 	var cbWg sync.WaitGroup
 	var sendWg sync.WaitGroup
-	cbWg.Add(1)
-	go func() {
-		defer cbWg.Done()
+	cbWg.Go(func() {
 		for ev := range cbCh {
 			if l.cbLeader != nil {
 				l.cbLeader(l.cbLeaderData, ev.leader, ev.token, ev.ctx)
 			}
 		}
-	}()
+	})
 
 	var leaderCancel context.CancelFunc
 
@@ -155,11 +153,9 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 			evCtx = context.Background()
 		}
 
-		sendWg.Add(1)
-		go func(ev cbEvent) {
-			defer sendWg.Done()
-			cbCh <- ev
-		}(cbEvent{state == 1, l.token(), evCtx})
+		sendWg.Go(func() {
+			cbCh <- cbEvent{state == 1, l.token(), evCtx}
+		})
 	}
 
 	// attemptLeader returns (isLeader, token, elapsedSinceLastHeartbeat, error).
