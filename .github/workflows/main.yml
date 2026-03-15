@@ -2,11 +2,11 @@ name: main
 
 on:
   push:
-    branches: [ v2 ]
+    branches: [ v1.x, v2.x, v3.x ]
     tags:
     - '*'
   pull_request:
-    branches: [ v2 ]
+    branches: [ v1.x, v2.x, v3.x ]
 
 jobs:
   codeberg:
