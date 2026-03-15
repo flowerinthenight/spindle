@@ -103,7 +103,7 @@ type Lock struct {
 // Run starts the main lock loop which can be canceled using the input context. You can
 // provide an optional done channel if you want to be notified when the loop is done.
 func (l *Lock) Run(ctx context.Context, done ...chan error) {
-	err := l.ensureLockTable()
+	err := l.ensureLockTable(ctx)
 	if err != nil {
 		if len(done) > 0 {
 			select {
@@ -418,18 +418,10 @@ func (l *Lock) heartbeat(ctx context.Context) error {
 	return nil
 }
 
-func (l *Lock) ensureLockTable() error {
+func (l *Lock) ensureLockTable(ctx context.Context) error {
 	if l.dbAdmin == nil {
 		return nil // assume table exists if no admin client provided
 	}
-
-	var err error
-	ctx := context.Background()
-	defer func(e *error) {
-		if *e == nil {
-			l.logger.Println("lock table:", l.table)
-		}
-	}(&err)
 
 	var ddl strings.Builder
 	fmt.Fprintf(&ddl, "CREATE TABLE %s (", l.table)
