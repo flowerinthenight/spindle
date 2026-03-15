@@ -66,8 +66,8 @@ func (w withDbAdminClient) Apply(o *Lock) {
 	o.dbAdmin = w.c
 }
 
-// WithDatabaseAdminClient sets Lock's database admin client, which is used for creating
-// the lock table if it doesn't exist. Create table permissions required.
+// WithDatabaseAdminClient sets Lock's database admin client, which is used for
+// creating the lock table if it doesn't exist. Create table permissions required.
 func WithDatabaseAdminClient(c *admin.DatabaseAdminClient) Option {
 	return withDbAdminClient{c}
 }
