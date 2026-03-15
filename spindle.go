@@ -122,7 +122,10 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 	}
 
 	cbCh := make(chan cbEvent, 2)
+	var cbWg sync.WaitGroup
+	cbWg.Add(1)
 	go func() {
+		defer cbWg.Done()
 		for ev := range cbCh {
 			if l.cbLeader != nil {
 				l.cbLeader(l.cbLeaderData, ev.leader, ev.token, ev.ctx)
@@ -148,19 +151,13 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 			evCtx = context.Background()
 		}
 
-		select {
-		case cbCh <- cbEvent{state == 1, l.token(), evCtx}:
-		default:
-			select {
-			case <-cbCh:
-			default:
-			}
-			cbCh <- cbEvent{state == 1, l.token(), evCtx}
-		}
+		go func(ev cbEvent) {
+			cbCh <- ev
+		}(cbEvent{state == 1, l.token(), evCtx})
 	}
 
-	// attemptLeader returns (isLeader, token, elapsedSinceLastHeartbeat).
-	attemptLeader := func() (bool, int64, time.Duration) {
+	// attemptLeader returns (isLeader, token, elapsedSinceLastHeartbeat, error).
+	attemptLeader := func() (bool, int64, time.Duration, error) {
 		var token atomic.Int64
 		var spannerElapsed atomic.Int64
 
@@ -214,24 +211,23 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 		}()
 
 		if err != nil {
-			return false, token.Load(), time.Duration(spannerElapsed.Load())
+			return false, token.Load(), time.Duration(spannerElapsed.Load()), err
 		}
 
 		l.setToken(&cts)
 		l.logger.Printf("got the lock with token %v", l.token())
-		return true, token.Load(), 0
+		return true, token.Load(), 0, nil
 	}
 
 	go func() {
-		<-ctx.Done()
-		l.active.Store(0)
-		close(cbCh)
-		if len(done) > 0 {
-			done[0] <- nil
-		}
-	}()
+		defer func() {
+			close(cbCh)
+			cbWg.Wait()
+			if len(done) > 0 {
+				done[0] <- nil
+			}
+		}()
 
-	go func() {
 		timer := time.NewTimer(0)
 		defer timer.Stop()
 
@@ -248,11 +244,13 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 		for {
 			select {
 			case <-ctx.Done():
+				l.active.Store(0)
 				if leader {
 					if leaderCancel != nil {
 						leaderCancel()
 					}
 					l.release()
+					leaderCallback(0)
 				}
 				return
 			case <-timer.C:
@@ -261,14 +259,15 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 			l.iter.Add(1)
 			start := time.Now()
 
+			var err error
 			if leader {
 				hbCtx, hbCancel := context.WithTimeout(ctx, buffer)
-				if err := l.heartbeat(hbCtx); err != nil {
+				if err = l.heartbeat(hbCtx); err != nil {
 					leader = false
 				}
 				hbCancel()
 			} else {
-				leader, _, elapsed = attemptLeader()
+				leader, _, elapsed, err = attemptLeader()
 			}
 
 			// Update buffer based on measured Spanner latency.
@@ -296,7 +295,11 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 			if leader {
 				expire = leaseDuration - time.Since(start)
 			} else {
-				expire = leaseDuration - elapsed
+				if err != nil && elapsed == 0 {
+					expire = buffer
+				} else {
+					expire = leaseDuration - elapsed
+				}
 			}
 
 			expire -= buffer
