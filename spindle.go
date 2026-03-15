@@ -158,7 +158,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 		})
 	}
 
-	// attemptLeader returns (isLeader, token, elapsedSinceLastHeartbeat, error).
+	// Returns (isLeader, token, elapsedSinceLastHeartbeat, error).
 	attemptLeader := func() (bool, int64, time.Duration, error) {
 		var token atomic.Int64
 		var spannerElapsed atomic.Int64
