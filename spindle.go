@@ -106,7 +106,10 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 	err := l.ensureLockTable()
 	if err != nil {
 		if len(done) > 0 {
-			done[0] <- err
+			select {
+			case done[0] <- err:
+			default:
+			}
 		}
 
 		return
@@ -123,6 +126,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 
 	cbCh := make(chan cbEvent, 2)
 	var cbWg sync.WaitGroup
+	var sendWg sync.WaitGroup
 	cbWg.Add(1)
 	go func() {
 		defer cbWg.Done()
@@ -151,7 +155,9 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 			evCtx = context.Background()
 		}
 
+		sendWg.Add(1)
 		go func(ev cbEvent) {
+			defer sendWg.Done()
 			cbCh <- ev
 		}(cbEvent{state == 1, l.token(), evCtx})
 	}
@@ -221,10 +227,14 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 
 	go func() {
 		defer func() {
+			sendWg.Wait()
 			close(cbCh)
 			cbWg.Wait()
 			if len(done) > 0 {
-				done[0] <- nil
+				select {
+				case done[0] <- nil:
+				default:
+				}
 			}
 		}()
 
@@ -348,7 +358,7 @@ func (l *Lock) setToken(v *time.Time) {
 func (l *Lock) release() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	l.db.ReadWriteTransaction(ctx,
+	_, err := l.db.ReadWriteTransaction(ctx,
 		func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 			var q strings.Builder
 			fmt.Fprintf(&q, "DELETE FROM %s ", l.table)
@@ -367,6 +377,9 @@ func (l *Lock) release() {
 			return err
 		},
 	)
+	if err != nil {
+		l.logger.Printf("release failed: %v", err)
+	}
 }
 
 func (l *Lock) heartbeat(ctx context.Context) error {
