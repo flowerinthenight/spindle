@@ -61,6 +61,8 @@ func main() {
 
             // Do leader work using ctx; cancelled when leadership is lost.
             // Use token as a fencing token for downstream conditional writes.
+            // NOTE: Use the token monotonically (e.g. >= token) as heartbeats
+            // will advance the token stored in the database.
             // IMPORTANT: You must honor 'ctx' to avoid split-brain scenarios.
             go func() {
                 for {
@@ -88,7 +90,7 @@ func main() {
 ```
 
 ## How it works
-The initial lock (the lock record doesn't exist in the table yet) is acquired by a process using an SQL `INSERT` (via `InsertOrUpdate`). Once the record is created (by one process), all other attempts will see the active lock. In this phase, **the commit timestamp of the locking process' transaction will be equal to the timestamp stored in the** `token` **column (being able to do this in one atomic network call is a crucial part of the algorithm)**. This will serve as our fencing token in situations where multiple processes are somehow able to acquire a lock. Using this token, the real lock holder will start sending heartbeats by updating the `token` column with a new commit timestamp.
+The initial lock (the lock record doesn't exist in the table yet) is acquired by a process using an SQL `INSERT` (via `InsertOrUpdate`). Once the record is created (by one process), all other attempts will see the active lock. In this phase, **the commit timestamp of the locking process' transaction will be equal to the timestamp stored in the** `token` **column (being able to do this in one atomic network call is a crucial part of the algorithm)**. This will serve as our fencing token in situations where multiple processes are somehow able to acquire a lock. Using this token, the real lock holder will start sending heartbeats by updating the `token` column with a new commit timestamp. **Note that the heartbeat process advances the database token; downstream systems should use the callback token as a monotonic epoch (accepting writes where `current_token >= callback_token`).**
 
 When a lock is active, all participating processes will detect if the lease has expired by checking the lock's `token` against Spanner's `CURRENT_TIMESTAMP()` within a read-write transaction. This ensures that the time check strictly uses Spanner's TrueTime, avoiding any issues with local clock drift. If the lease has expired (say, the active locker has crashed, or cancelled), the first process to successfully commit an `InsertOrUpdate` will take over the lock (**still using a single, atomic network call**). This takeover updates the `token` column using its new commit timestamp, thus, updating the fencing token. In the event that the original locker process recovers (if crashed), or continues after a stop-the-world GC pause, the latest token should invalidate its locking claim (its token is already outdated).
 
