@@ -152,4 +152,3 @@ func TestLeaderCallback(t *testing.T) {
 		t.Errorf("event[1] = %+v; want leader=false token=0", events[1])
 	}
 }
-

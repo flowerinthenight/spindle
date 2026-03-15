@@ -15,6 +15,7 @@ import (
 	admin "cloud.google.com/go/spanner/admin/database/apiv1"
 	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	"github.com/google/uuid"
+	"google.golang.org/api/iterator"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -164,29 +165,34 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 		var spannerElapsed atomic.Int64
 
 		l.logger.Printf("get lock for %v/%v", l.table, l.name)
-		startNow := time.Now()
 		cts, err := func() (time.Time, error) {
 			ts, err := l.db.ReadWriteTransaction(ctx,
 				func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
-					row, err := txn.ReadRow(
-						ctx,
-						l.table,
-						spanner.Key{l.name}, []string{"owner", "token"},
-					)
+					var q strings.Builder
+					fmt.Fprintf(&q, "SELECT owner, token, CURRENT_TIMESTAMP() ")
+					fmt.Fprintf(&q, "FROM %s WHERE name = @name", l.table)
+					stmt := spanner.Statement{
+						SQL:    q.String(),
+						Params: map[string]any{"name": l.name},
+					}
+					iter := txn.Query(ctx, stmt)
+					defer iter.Stop()
 
+					row, err := iter.Next()
 					if err == nil {
 						var currentOwner string
 						var lastToken time.Time
-						if err := row.Columns(&currentOwner, &lastToken); err != nil {
+						var spannerNow time.Time
+						if err := row.Columns(&currentOwner, &lastToken, &spannerNow); err != nil {
 							return err
 						}
 
-						if currentOwner != l.id && startNow.Sub(lastToken) < leaseDuration {
+						if currentOwner != l.id && spannerNow.Sub(lastToken) < leaseDuration {
 							token.Store(lastToken.UnixNano())
-							spannerElapsed.Store(int64(startNow.Sub(lastToken)))
+							spannerElapsed.Store(int64(spannerNow.Sub(lastToken)))
 							return fmt.Errorf("lock held by %s", currentOwner)
 						}
-					} else if spanner.ErrCode(err) != codes.NotFound {
+					} else if err != iterator.Done {
 						return err
 					}
 
