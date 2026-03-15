@@ -158,10 +158,13 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 		}
 	}
 
-	attemptLeader := func() (bool, int64) {
+	// attemptLeader returns (isLeader, token, elapsedSinceLastHeartbeat).
+	attemptLeader := func() (bool, int64, time.Duration) {
 		var token atomic.Int64
+		var spannerElapsed atomic.Int64
 
 		l.logger.Printf("get lock for %v/%v", l.table, l.name)
+		startNow := time.Now()
 		cts, err := func() (time.Time, error) {
 			ts, err := l.db.ReadWriteTransaction(ctx,
 				func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
@@ -178,8 +181,9 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 							return err
 						}
 
-						if currentOwner != l.id && time.Since(lastToken) < leaseDuration {
+						if currentOwner != l.id && startNow.Sub(lastToken) < leaseDuration {
 							token.Store(lastToken.UnixNano())
+							spannerElapsed.Store(int64(startNow.Sub(lastToken)))
 							return fmt.Errorf("lock held by %s", currentOwner)
 						}
 					} else if spanner.ErrCode(err) != codes.NotFound {
@@ -204,12 +208,12 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 		}()
 
 		if err != nil {
-			return false, token.Load()
+			return false, token.Load(), time.Duration(spannerElapsed.Load())
 		}
 
 		l.setToken(&cts)
 		l.logger.Printf("got the lock with token %v", l.token())
-		return true, token.Load()
+		return true, token.Load(), 0
 	}
 
 	go func() {
@@ -233,7 +237,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 		var leader bool
 		var wasLeader bool
 		firstRun := true
-		var token int64
+		var elapsed time.Duration
 
 		for {
 			select {
@@ -252,11 +256,13 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 			start := time.Now()
 
 			if leader {
-				if err := l.heartbeat(ctx); err != nil {
+				hbCtx, hbCancel := context.WithTimeout(ctx, buffer)
+				if err := l.heartbeat(hbCtx); err != nil {
 					leader = false
 				}
+				hbCancel()
 			} else {
-				leader, token = attemptLeader()
+				leader, _, elapsed = attemptLeader()
 			}
 
 			// Update buffer based on measured Spanner latency.
@@ -282,9 +288,9 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 			}
 
 			if leader {
-				expire = leaseDuration - time.Since(time.Unix(0, l.token()))
+				expire = leaseDuration - time.Since(start)
 			} else {
-				expire = leaseDuration - time.Since(time.Unix(0, token))
+				expire = leaseDuration - elapsed
 			}
 
 			expire -= buffer
@@ -335,9 +341,21 @@ func (l *Lock) release() {
 	defer cancel()
 	l.db.ReadWriteTransaction(ctx,
 		func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
-			return txn.BufferWrite([]*spanner.Mutation{
-				spanner.Delete(l.table, spanner.Key{l.name}),
-			})
+			var q strings.Builder
+			fmt.Fprintf(&q, "DELETE FROM %s ", l.table)
+			fmt.Fprintf(&q, "WHERE name = @name ")
+			fmt.Fprintf(&q, "AND token = @oldToken ")
+			fmt.Fprintf(&q, "AND owner = @owner")
+			stmt := spanner.Statement{
+				SQL: q.String(),
+				Params: map[string]any{
+					"name":     l.name,
+					"oldToken": time.Unix(0, l.token()),
+					"owner":    l.id,
+				},
+			}
+			_, err := txn.Update(ctx, stmt)
+			return err
 		},
 	)
 }

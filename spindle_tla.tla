@@ -7,42 +7,42 @@ CONSTANTS
 
 VARIABLES
     db_token,        \* The current token (commit timestamp) in the database; 0 = row absent
-    db_writer,       \* The current lock holder id in the database; 0 = no holder
+    db_owner,       \* The current lock holder id in the database; 0 = no holder
     node_token,      \* The token locally held by each node
     now              \* Logical global clock representing Spanner's TrueTime
 
-vars == <<db_token, db_writer, node_token, now>>
+vars == <<db_token, db_owner, node_token, now>>
 
 \* Initial State: Database row is absent, time starts at 1.
 Init ==
     /\ db_token = 0
-    /\ db_writer = 0
+    /\ db_owner = 0
     /\ node_token = [n \in Nodes |-> 0]
     /\ now = 1
 
 \* Simulate the passage of time.
 AdvanceTime ==
     /\ now' = now + 1
-    /\ UNCHANGED <<db_token, db_writer, node_token>>
+    /\ UNCHANGED <<db_token, db_owner, node_token>>
 
 \* Initial Acquisition: A node acquires the lock when the row doesn't exist.
 \* Maps to: InsertOrUpdate with spanner.CommitTimestamp when ReadRow returns NotFound.
 AttemptInitialLock(n) ==
     /\ db_token = 0
     /\ db_token' = now
-    /\ db_writer' = n
+    /\ db_owner' = n
     /\ node_token' = [node_token EXCEPT ![n] = now]
     /\ now' = now + 1
 
 \* Heartbeat: The active leader updates the token with a CAS.
 \* Maps to: UPDATE SET token = PENDING_COMMIT_TIMESTAMP()
-\*          WHERE name = @name AND token = @oldToken AND writer = @owner
+\*          WHERE name = @name AND token = @oldToken AND owner = @owner
 Heartbeat(n) ==
     /\ node_token[n] > 0
     /\ db_token = node_token[n]   \* CAS: token must match
-    /\ db_writer = n              \* CAS: writer must match
+    /\ db_owner = n              \* CAS: writer must match
     /\ db_token' = now
-    /\ db_writer' = n
+    /\ db_owner' = n
     /\ node_token' = [node_token EXCEPT ![n] = now]
     /\ now' = now + 1
 
@@ -52,7 +52,7 @@ AttemptTakeover(n) ==
     /\ db_token > 0
     /\ now - db_token > Duration   \* Lease expired (checked against token)
     /\ db_token' = now
-    /\ db_writer' = n
+    /\ db_owner' = n
     \* Clear old leader's token, set new leader's token
     /\ node_token' = [m \in Nodes |->
         IF m = n THEN now
@@ -65,9 +65,9 @@ AttemptTakeover(n) ==
 Release(n) ==
     /\ node_token[n] > 0
     /\ db_token = node_token[n]
-    /\ db_writer = n
+    /\ db_owner = n
     /\ db_token' = 0
-    /\ db_writer' = 0
+    /\ db_owner' = 0
     /\ node_token' = [node_token EXCEPT ![n] = 0]
     /\ now' = now + 1
 

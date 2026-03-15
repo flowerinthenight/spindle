@@ -1,4 +1,4 @@
-module github.com/flowerinthenight/spindle/v2
+module github.com/flowerinthenight/spindle/v3
 
 go 1.25.0
 

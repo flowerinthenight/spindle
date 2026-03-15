@@ -12,7 +12,7 @@ import (
 
 	"cloud.google.com/go/spanner"
 	admin "cloud.google.com/go/spanner/admin/database/apiv1"
-	"github.com/flowerinthenight/spindle/v2"
+	"github.com/flowerinthenight/spindle/v3"
 )
 
 func main() {
