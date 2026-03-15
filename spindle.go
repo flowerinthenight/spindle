@@ -59,20 +59,17 @@ func WithLeaderCallback(d any, h FnLeaderCallback) Option {
 }
 
 type withDbAdminClient struct {
-	c  *admin.DatabaseAdminClient
-	db string
+	c *admin.DatabaseAdminClient
 }
 
 func (w withDbAdminClient) Apply(o *Lock) {
 	o.dbAdmin = w.c
-	o.dbPath = w.db
 }
 
 // WithDatabaseAdminClient sets Lock's database admin client, which is used for creating
-// the lock table if it doesn't exist. Create table permissions required. 'db' is the
-// database path (e.g. projects/test-project/instances/test-instance/databases/testdb).
-func WithDatabaseAdminClient(c *admin.DatabaseAdminClient, db string) Option {
-	return withDbAdminClient{c, db}
+// the lock table if it doesn't exist. Create table permissions required.
+func WithDatabaseAdminClient(c *admin.DatabaseAdminClient) Option {
+	return withDbAdminClient{c}
 }
 
 type withLogger struct{ l *log.Logger }
@@ -469,8 +466,14 @@ func errAlreadyExists(err error) bool {
 
 // New returns a lock object with a default of 10s lease duration.
 func New(db *spanner.Client, table, name string, o ...Option) *Lock {
+	var dbPath string
+	if db != nil {
+		dbPath = db.DatabaseName()
+	}
+
 	lock := &Lock{
 		db:       db,
+		dbPath:   dbPath,
 		table:    table,
 		name:     name,
 		id:       uuid.New().String(),

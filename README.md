@@ -68,7 +68,7 @@ func main() {
     lock := spindle.New(
         db, "locktable", "mylock",
         spindle.WithDuration(10000),
-        spindle.WithDatabaseAdminClient(dbAdmin, "your/database"),
+        spindle.WithDatabaseAdminClient(dbAdmin),
         spindle.WithLeaderCallback(nil,
             func(d any, leader bool, token int64, ctx context.Context) {
             if !leader {

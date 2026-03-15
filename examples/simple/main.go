@@ -52,7 +52,7 @@ func main() {
 		*name,
 		spindle.WithId(id),
 		spindle.WithDuration(10000),
-		spindle.WithDatabaseAdminClient(dbAdminClient, *dbstr),
+		spindle.WithDatabaseAdminClient(dbAdminClient),
 		spindle.WithLeaderCallback(nil, func(d any, leader bool, token int64, ctx context.Context) {
 			if !leader {
 				log.Printf("[%s] lost leadership, stopping work", id)
