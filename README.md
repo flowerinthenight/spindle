@@ -9,7 +9,7 @@ A distributed locking library built on [Cloud Spanner](https://cloud.google.com/
 > [!IMPORTANT]
 > **Note on v3.x**: This branch (`v3.x`) is a big departure from the `v2.x` branch in terms of locking logic and correctness. Although `v2.x` is heavily used in Alphaus' production and has stood the test of time, please be aware of the critical changes from `v2.x` to `v3.x` when upgrading.
 > 
-> ### Key Differences: `v2.x` vs `v3.x`
+> **Key Differences: `v2.x` vs `v3.x`**
 > 
 > **`v2.x`**:
 > * **Non-atomic Acquisitions**: Required multiple network calls (an `INSERT` followed by an `UPDATE`) to acquire a lock.
