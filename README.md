@@ -6,6 +6,9 @@
 ## spindle
 A distributed locking library built on [Cloud Spanner](https://cloud.google.com/spanner/). It relies on Spanner's [TrueTime](https://cloud.google.com/spanner/docs/true-time-external-consistency) and [transactions](https://cloud.google.com/spanner/docs/transactions) support to achieve its locking mechanism.
 
+> [!IMPORTANT]
+> **Note on v3.x**: This branch (`v3.x`) is a big departure from the `v2.x` branch in terms of locking logic and correctness. Although `v2.x` is now heavily used in production and has stood the test of time, please be aware of the critical changes from `v2.x` to `v3.x` when upgrading.
+
 Port(s):
 * [spindle-rs](https://github.com/flowerinthenight/spindle-rs) - a port written in Rust
 * [spindle-cb](https://github.com/flowerinthenight/spindle-cb) - relies on [aws/clock-bound](https://github.com/aws/clock-bound) and PostgreSQL (storage)
