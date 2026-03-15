@@ -43,8 +43,8 @@ func main() {
 		*name,
 		spindle.WithDuration(10000),
 		spindle.WithDatabaseAdminClient(dbAdminClient, *dbstr),
-		spindle.WithLeaderCallback(nil, func(d any, m []byte) {
-			log.Println("callback:", string(m))
+		spindle.WithLeaderCallback(nil, func(d any, leader bool, token int64) {
+			log.Printf("callback: leader=%v, token=%v", leader, token)
 		}),
 	)
 
@@ -55,11 +55,13 @@ func main() {
 		sigch := make(chan os.Signal, 1)
 		signal.Notify(sigch, syscall.SIGINT, syscall.SIGTERM)
 		<-sigch
-		cancel()
+		cancel() // triggers lock release if this node is the leader
 	}()
 
 	err = <-done
 	if err != nil {
 		log.Println(err)
 	}
+
+	log.Println("lock released, shutting down")
 }
