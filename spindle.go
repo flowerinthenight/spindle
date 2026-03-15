@@ -121,11 +121,42 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 		ctx    context.Context
 	}
 
-	cbCh := make(chan cbEvent, 2)
-	var wgCb sync.WaitGroup
+	cbChIn := make(chan cbEvent)
+	cbChOut := make(chan cbEvent)
+
 	var wgSend sync.WaitGroup
+	wgSend.Go(func() {
+		defer close(cbChOut)
+		var q []cbEvent
+		inCh := cbChIn
+		for {
+			if len(q) == 0 {
+				if inCh == nil {
+					return
+				}
+				ev, ok := <-inCh
+				if !ok {
+					return
+				}
+				q = append(q, ev)
+			} else {
+				select {
+				case ev, ok := <-inCh:
+					if !ok {
+						inCh = nil
+					} else {
+						q = append(q, ev)
+					}
+				case cbChOut <- q[0]:
+					q = q[1:]
+				}
+			}
+		}
+	})
+
+	var wgCb sync.WaitGroup
 	wgCb.Go(func() {
-		for ev := range cbCh {
+		for ev := range cbChOut {
 			if l.cbLeader != nil {
 				l.cbLeader(l.cbLeaderData, ev.leader, ev.token, ev.ctx)
 			}
@@ -150,9 +181,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 			evCtx = context.Background()
 		}
 
-		wgSend.Go(func() {
-			cbCh <- cbEvent{state == 1, l.token(), evCtx}
-		})
+		cbChIn <- cbEvent{state == 1, l.token(), evCtx}
 	}
 
 	// Returns (isLeader, token, elapsedSinceLastHeartbeat, error).
@@ -220,8 +249,8 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 
 	go func() {
 		defer func() {
+			close(cbChIn)
 			wgSend.Wait()
-			close(cbCh)
 			wgCb.Wait()
 			if len(done) > 0 {
 				select {
