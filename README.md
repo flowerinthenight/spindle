@@ -7,14 +7,14 @@
 A distributed locking library built on [Cloud Spanner](https://cloud.google.com/spanner/). It relies on Spanner's [TrueTime](https://cloud.google.com/spanner/docs/true-time-external-consistency) and [transactions](https://cloud.google.com/spanner/docs/transactions) support to achieve its locking mechanism.
 
 > [!IMPORTANT]
-> **Note on v3.x**: `v3.x` is a big departure from `v2.x` in terms of locking logic and correctness. Although `v2.x` is heavily used in Alphaus' production and has stood the test of time, please be aware of the critical changes from `v2.x` to `v3.x` when upgrading. Key Differences are as follows:
+> **Note on v3**: `v3` is a big departure from `v2` in terms of locking logic and correctness. Although `v2` is heavily used in Alphaus' production and has stood the test of time, please be aware of the critical changes from `v2` to `v3` when upgrading. Key Differences are as follows:
 >
-> `v2.x`:
+> `v2`:
 > * **Non-atomic Acquisitions**: Required multiple network calls (an `INSERT` followed by an `UPDATE`) to acquire a lock.
 > * **Loose Heartbeats**: Unconditionally updated the heartbeat column without validating the current token.
 > * **Schema**: Relied on both a `heartbeat` column and a separate `token` column.
 >
-> `v3.x`:
+> `v3`:
 > * **Atomic Operations**: Lock acquisition and takeover now execute in a single atomic network call via `spanner.InsertOrUpdate` within a ReadWrite transaction.
 > * **Strict TrueTime**: Lease expirations are verified directly inside the transaction using Spanner's `CURRENT_TIMESTAMP()`, avoiding any local clock drift issues.
 > * **Optimistic Concurrency**: Heartbeats utilize a check-and-set mechanism (`WHERE token = @oldToken`) to ensure the lock is still held.
