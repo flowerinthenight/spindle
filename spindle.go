@@ -161,8 +161,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 	attemptLeader := func() (bool, int64) {
 		var token atomic.Int64
 
-		prefix := "attempt:"
-		l.logger.Printf("%v get lock for %v/%v", prefix, l.table, l.name)
+		l.logger.Printf("get lock for %v/%v", l.table, l.name)
 		cts, err := func() (time.Time, error) {
 			ts, err := l.db.ReadWriteTransaction(ctx,
 				func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
@@ -197,7 +196,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 			)
 
 			if err != nil {
-				l.logger.Printf("%v tx failed: %v", prefix, err)
+				l.logger.Printf("tx failed: %v", err)
 				return time.Time{}, err
 			}
 
@@ -209,7 +208,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 		}
 
 		l.setToken(&cts)
-		l.logger.Printf("%v got the lock with token %v", prefix, l.token())
+		l.logger.Printf("got the lock with token %v", l.token())
 		return true, token.Load()
 	}
 
@@ -229,7 +228,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 		bufferFloor := 500 * time.Millisecond
 		bufferCeil := leaseDuration / 2
 		var avgLatency time.Duration
-		buffer := 800 * time.Millisecond // initial conservative value
+		buffer := 800 * time.Millisecond // initial
 		var expire time.Duration
 		var leader bool
 		var wasLeader bool
@@ -268,13 +267,8 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 				avgLatency = time.Duration(float64(avgLatency)*0.7 + float64(latency)*0.3)
 			}
 
-			buffer = avgLatency * 3
-			if buffer < bufferFloor {
-				buffer = bufferFloor
-			}
-			if buffer > bufferCeil {
-				buffer = bufferCeil
-			}
+			buffer = max(avgLatency*3, bufferFloor)
+			buffer = min(buffer, bufferCeil)
 
 			if leader != wasLeader || firstRun {
 				if leader {
@@ -298,7 +292,12 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 				expire = buffer
 			}
 
-			l.logger.Printf("expire=%v, buffer=%v, leader=%v (%v)", expire, buffer, leader, l.Iterations())
+			me := "not me"
+			if leader {
+				me = "me"
+			}
+
+			l.logger.Printf("expire=%v, buffer=%v, leader active (%v) (%v)", expire, buffer, me, l.Iterations())
 			timer.Reset(expire)
 
 			l.logger.Printf("round %v took %v", l.Iterations(), time.Since(start))
