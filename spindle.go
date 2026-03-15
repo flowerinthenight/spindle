@@ -168,7 +168,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 					row, err := txn.ReadRow(
 						ctx,
 						l.table,
-						spanner.Key{l.name}, []string{"writer", "token"},
+						spanner.Key{l.name}, []string{"owner", "token"},
 					)
 
 					if err == nil {
@@ -189,7 +189,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 					return txn.BufferWrite([]*spanner.Mutation{
 						spanner.InsertOrUpdate(
 							l.table,
-							[]string{"name", "writer", "token"},
+							[]string{"name", "owner", "token"},
 							[]any{l.name, l.id, spanner.CommitTimestamp},
 						)})
 				},
@@ -350,7 +350,7 @@ func (l *Lock) heartbeat(ctx context.Context) error {
 			fmt.Fprintf(&q, "set token = PENDING_COMMIT_TIMESTAMP() ")
 			fmt.Fprintf(&q, "where name = @name ")
 			fmt.Fprintf(&q, "and token = @oldToken ")
-			fmt.Fprintf(&q, "and writer = @owner")
+			fmt.Fprintf(&q, "and owner = @owner")
 			stmt := spanner.Statement{
 				SQL: q.String(),
 				Params: map[string]any{
@@ -399,7 +399,7 @@ func (l *Lock) ensureLockTable() error {
 	fmt.Fprintf(&ddl, "CREATE TABLE %s (", l.table)
 	fmt.Fprintf(&ddl, "name STRING(MAX) NOT NULL,")
 	fmt.Fprintf(&ddl, "token TIMESTAMP OPTIONS (allow_commit_timestamp=true),")
-	fmt.Fprintf(&ddl, "writer STRING(MAX)")
+	fmt.Fprintf(&ddl, "owner STRING(MAX)")
 	fmt.Fprintf(&ddl, ") PRIMARY KEY (name)")
 
 	op, err := l.dbAdmin.UpdateDatabaseDdl(ctx, &databasepb.UpdateDatabaseDdlRequest{

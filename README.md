@@ -30,7 +30,7 @@ At the moment, the table needs to be created beforehand using the following DDL 
 CREATE TABLE locktable (
     name STRING(MAX) NOT NULL,
     token TIMESTAMP OPTIONS (allow_commit_timestamp=true),
-    writer STRING(MAX)
+    owner STRING(MAX)
 ) PRIMARY KEY (name)
 ```
 
