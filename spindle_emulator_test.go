@@ -12,7 +12,7 @@ import (
 	"cloud.google.com/go/spanner"
 	admin "cloud.google.com/go/spanner/admin/database/apiv1"
 	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
-	"cloud.google.com/go/spanner/admin/instance/apiv1"
+	instance "cloud.google.com/go/spanner/admin/instance/apiv1"
 	"cloud.google.com/go/spanner/admin/instance/apiv1/instancepb"
 	"google.golang.org/api/option"
 	"google.golang.org/grpc"
@@ -26,8 +26,6 @@ func TestSpannerEmulatorFailover(t *testing.T) {
 	}
 
 	ctx := context.Background()
-
-	// 1. Create instance and database
 	conn, err := grpc.Dial(emulatorHost, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		t.Fatalf("Failed to dial emulator: %v", err)
@@ -44,7 +42,6 @@ func TestSpannerEmulatorFailover(t *testing.T) {
 	instanceID := "test-instance"
 	dbID := "test-db"
 
-	// Create instance
 	createInstanceOp, err := instanceAdminClient.CreateInstance(ctx, &instancepb.CreateInstanceRequest{
 		Parent:     fmt.Sprintf("projects/%s", projectID),
 		InstanceId: instanceID,
@@ -70,8 +67,6 @@ func TestSpannerEmulatorFailover(t *testing.T) {
 	defer dbAdminClient.Close()
 
 	dbPath := fmt.Sprintf("projects/%s/instances/%s/databases/%s", projectID, instanceID, dbID)
-
-	// Create database with lock table
 	createDbOp, err := dbAdminClient.CreateDatabase(ctx, &databasepb.CreateDatabaseRequest{
 		Parent:          fmt.Sprintf("projects/%s/instances/%s", projectID, instanceID),
 		CreateStatement: fmt.Sprintf("CREATE DATABASE `%s`", dbID),
@@ -103,13 +98,10 @@ func TestSpannerEmulatorFailover(t *testing.T) {
 	var mu sync.Mutex
 	var leaderB bool
 
-	// Used to wait for Node A to become leader
 	nodeABecameLeader := make(chan struct{})
-
-	// Used to wait for Node B to become leader
 	nodeBBecameLeader := make(chan struct{})
 
-	// Setup Node A
+	// Setup Node A.
 	quitA, cancelA := context.WithCancel(ctx)
 	defer cancelA() // ensure cleanup
 	doneA := make(chan error, 1)
@@ -131,17 +123,17 @@ func TestSpannerEmulatorFailover(t *testing.T) {
 		}),
 	)
 
-	// Start Node A
+	// Start Node A.
 	lockA.Run(quitA, doneA)
 
-	// Wait for Node A to become leader
+	// Wait for Node A to become leader.
 	select {
 	case <-nodeABecameLeader:
 	case <-time.After(10 * time.Second):
 		t.Fatal("Node A did not become leader in time")
 	}
 
-	// Setup Node B
+	// Setup Node B.
 	quitB, cancelB := context.WithCancel(ctx)
 	defer cancelB() // ensure cleanup
 	doneB := make(chan error, 1)
@@ -166,10 +158,10 @@ func TestSpannerEmulatorFailover(t *testing.T) {
 		}),
 	)
 
-	// Start Node B
+	// Start Node B.
 	lockB.Run(quitB, doneB)
 
-	// Wait a bit to ensure B doesn't take over prematurely
+	// Wait a bit to ensure B doesn't take over prematurely.
 	time.Sleep(time.Duration(leaseDuration) * time.Millisecond)
 
 	mu.Lock()
@@ -183,7 +175,7 @@ func TestSpannerEmulatorFailover(t *testing.T) {
 	cancelA()
 	<-doneA
 
-	// Wait for Node B to become leader after A's lease expires
+	// Wait for Node B to become leader after A's lease expires.
 	select {
 	case <-nodeBBecameLeader:
 		t.Log("Failover successful: Node B became leader")

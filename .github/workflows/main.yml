@@ -39,8 +39,6 @@ jobs:
     - name: 'Start Spanner Emulator'
       run: |
         docker run -d -p 9010:9010 -p 9020:9020 gcr.io/cloud-spanner-emulator/emulator:latest
-        
-        # Wait for the emulator to be ready
         echo "Waiting for Spanner Emulator to start..."
         while ! nc -z localhost 9010; do
           sleep 1
