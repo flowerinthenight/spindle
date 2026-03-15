@@ -39,7 +39,7 @@ After creating the lock object, you will call the `Run(...)` function which will
 ```go
 import (
     ...
-    "github.com/flowerinthenight/spindle/v2"
+    "github.com/flowerinthenight/spindle/v3"
 )
 
 func main() {
@@ -53,7 +53,8 @@ func main() {
         db, "locktable", "mylock",
         spindle.WithDuration(10000),
         spindle.WithDatabaseAdminClient(dbAdmin, "your/database"),
-        spindle.WithLeaderCallback(nil, func(d any, leader bool, token int64, ctx context.Context) {
+        spindle.WithLeaderCallback(nil,
+            func(d any, leader bool, token int64, ctx context.Context) {
             if !leader {
                 return // lost leadership
             }
