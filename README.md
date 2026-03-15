@@ -7,9 +7,7 @@
 A distributed locking library built on [Cloud Spanner](https://cloud.google.com/spanner/). It relies on Spanner's [TrueTime](https://cloud.google.com/spanner/docs/true-time-external-consistency) and [transactions](https://cloud.google.com/spanner/docs/transactions) support to achieve its locking mechanism.
 
 > [!IMPORTANT]
-> **Note on v3.x**: `v3.x` is a big departure from `v2.x` in terms of locking logic and correctness. Although `v2.x` is heavily used in Alphaus' production and has stood the test of time, please be aware of the critical changes from `v2.x` to `v3.x` when upgrading.
->
-> Key Differences: `v2.x` vs `v3.x`
+> **Note on v3.x**: `v3.x` is a big departure from `v2.x` in terms of locking logic and correctness. Although `v2.x` is heavily used in Alphaus' production and has stood the test of time, please be aware of the critical changes from `v2.x` to `v3.x` when upgrading. Key Differences are as follows:
 >
 > `v2.x`:
 > * **Non-atomic Acquisitions**: Required multiple network calls (an `INSERT` followed by an `UPDATE`) to acquire a lock.
