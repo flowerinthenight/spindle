@@ -29,9 +29,8 @@ At the moment, the table needs to be created beforehand using the following DDL 
 ```SQL
 CREATE TABLE locktable (
     name STRING(MAX) NOT NULL,
-    heartbeat TIMESTAMP OPTIONS (allow_commit_timestamp=true),
     token TIMESTAMP OPTIONS (allow_commit_timestamp=true),
-    writer STRING(MAX),
+    writer STRING(MAX)
 ) PRIMARY KEY (name)
 ```
 
