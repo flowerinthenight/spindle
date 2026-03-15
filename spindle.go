@@ -37,7 +37,7 @@ type withDuration int64
 
 func (w withDuration) Apply(o *Lock) { o.duration = int64(w) }
 
-// WithDuration sets the locker's lease duration in ms. Minimum is 1000ms.
+// WithDuration sets the locker's lease duration in ms. Minimum is 3000ms.
 func WithDuration(v int64) Option { return withDuration(v) }
 
 type withLeaderCallback struct {
@@ -234,8 +234,10 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 		timer := time.NewTimer(0)
 		defer timer.Stop()
 
-		bufferFloor := 500 * time.Millisecond
-		bufferCeil := leaseDuration / 2
+		// Scale the latency buffer dynamically based on lease duration.
+		// For a 10s lease, floor is 500ms. For a 3s lease, floor is 150ms.
+		bufferFloor := max(50*time.Millisecond, leaseDuration/20)
+		bufferCeil := leaseDuration / 3
 		var avgLatency time.Duration
 		buffer := bufferFloor // initial
 		var expire time.Duration
@@ -243,6 +245,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 		var wasLeader bool
 		firstRun := true
 		var elapsed time.Duration
+		var lastHeartbeatSuccess time.Time
 
 		for {
 			select {
@@ -266,11 +269,21 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 			if leader {
 				hbCtx, hbCancel := context.WithTimeout(ctx, buffer)
 				if err = l.heartbeat(hbCtx); err != nil {
-					leader = false
+					// We failed to heartbeat. Drop leadership if the next attempt
+					// might exceed the lease duration safely window.
+					if time.Since(lastHeartbeatSuccess)+buffer >= leaseDuration {
+						leader = false
+						elapsed = 0 // Reset to immediately retry attemptLeader
+					}
+				} else {
+					lastHeartbeatSuccess = time.Now()
 				}
 				hbCancel()
 			} else {
 				leader, _, elapsed, err = attemptLeader()
+				if leader {
+					lastHeartbeatSuccess = time.Now()
+				}
 			}
 
 			// Update buffer based on measured Spanner latency.
@@ -296,7 +309,14 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 			}
 
 			if leader {
-				expire = leaseDuration - time.Since(start)
+				if err != nil {
+					// Retry quickly on failure, but don't hammer Spanner.
+					// Use the larger of the calculated latency buffer or
+					// 1/4th of the lease.
+					expire = max(buffer, leaseDuration/4)
+				} else {
+					expire = (leaseDuration / 2) - time.Since(start)
+				}
 			} else {
 				if err != nil && elapsed == 0 {
 					expire = buffer
@@ -490,9 +510,9 @@ func New(db *spanner.Client, table, name string, o ...Option) *Lock {
 		lock.logger = log.New(os.Stdout, prefix, log.LstdFlags)
 	}
 
-	if lock.duration < 1000 {
-		lock.logger.Println("setting duration to 1s (minimum)")
-		lock.duration = 1000 // minimum
+	if lock.duration < 3000 {
+		lock.logger.Println("setting duration to 3s (minimum)")
+		lock.duration = 3000 // minimum
 	}
 
 	return lock
