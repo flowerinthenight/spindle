@@ -125,9 +125,9 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 	}
 
 	cbCh := make(chan cbEvent, 2)
-	var cbWg sync.WaitGroup
-	var sendWg sync.WaitGroup
-	cbWg.Go(func() {
+	var wgCb sync.WaitGroup
+	var wgSend sync.WaitGroup
+	wgCb.Go(func() {
 		for ev := range cbCh {
 			if l.cbLeader != nil {
 				l.cbLeader(l.cbLeaderData, ev.leader, ev.token, ev.ctx)
@@ -153,7 +153,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 			evCtx = context.Background()
 		}
 
-		sendWg.Go(func() {
+		wgSend.Go(func() {
 			cbCh <- cbEvent{state == 1, l.token(), evCtx}
 		})
 	}
@@ -223,9 +223,9 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 
 	go func() {
 		defer func() {
-			sendWg.Wait()
+			wgSend.Wait()
 			close(cbCh)
-			cbWg.Wait()
+			wgCb.Wait()
 			if len(done) > 0 {
 				select {
 				case done[0] <- nil:
