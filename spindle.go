@@ -228,7 +228,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 		bufferFloor := 500 * time.Millisecond
 		bufferCeil := leaseDuration / 2
 		var avgLatency time.Duration
-		buffer := 800 * time.Millisecond // initial
+		buffer := bufferFloor // initial
 		var expire time.Duration
 		var leader bool
 		var wasLeader bool
