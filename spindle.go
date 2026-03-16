@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math/rand"
 	"os"
 	"strings"
 	"sync"
@@ -189,6 +190,43 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 		var token atomic.Int64
 		var spannerElapsed atomic.Int64
 
+		// Lock-free read-only check to avoid thundering herd RW transactions.
+		errReadOnly := func() error {
+			var q strings.Builder
+			fmt.Fprintf(&q, "SELECT owner, token, CURRENT_TIMESTAMP() ")
+			fmt.Fprintf(&q, "FROM %s WHERE name = @name", l.table)
+			stmt := spanner.Statement{
+				SQL:    q.String(),
+				Params: map[string]any{"name": l.name},
+			}
+			iter := l.db.Single().Query(ctx, stmt)
+			defer iter.Stop()
+
+			row, err := iter.Next()
+			if err == nil {
+				var currentOwner string
+				var lastToken time.Time
+				var spannerNow time.Time
+				if err := row.Columns(&currentOwner, &lastToken, &spannerNow); err != nil {
+					return err
+				}
+
+				if currentOwner != l.id && spannerNow.Sub(lastToken) < leaseDuration {
+					token.Store(lastToken.UnixNano())
+					spannerElapsed.Store(int64(spannerNow.Sub(lastToken)))
+					return fmt.Errorf("lock held by %s", currentOwner)
+				}
+			} else if err != iterator.Done {
+				return err
+			}
+			return nil
+		}()
+
+		if errReadOnly != nil {
+			return false, token.Load(), time.Duration(spannerElapsed.Load()), errReadOnly
+		}
+
+		// Change to RW tx to attempt to acquire the lock if it's available.
 		l.logger.Printf("get lock for %v/%v", l.table, l.name)
 		cts, err := func() (time.Time, error) {
 			ts, err := l.db.ReadWriteTransaction(ctx,
@@ -352,6 +390,10 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 				} else {
 					expire = leaseDuration - elapsed
 				}
+
+				// Add jitter by up to ~15% of the lease to prevent thundering herd.
+				jitter := time.Duration(rand.Int63n(int64(max(1, leaseDuration/7))))
+				expire += jitter
 			}
 
 			expire -= buffer
