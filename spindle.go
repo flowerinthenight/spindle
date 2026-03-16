@@ -21,6 +21,8 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+var ErrTokenSuperseded = errors.New("heartbeat failed: lock row missing or token superseded")
+
 type FnLeaderCallback func(data any, leader bool, token int64, ctx context.Context)
 
 type Option interface {
@@ -337,8 +339,10 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 				hbCtx, hbCancel := context.WithTimeout(ctx, buffer)
 				if err = l.heartbeat(hbCtx); err != nil {
 					// We failed to heartbeat. Drop leadership if the next attempt
-					// might exceed the lease duration safely window.
-					if time.Since(lastHeartbeatSuccess)+buffer >= leaseDuration {
+					// might exceed the lease duration safely window, or if the lock
+					// was explicitly superseded by another process.
+					if errors.Is(err, ErrTokenSuperseded) ||
+						time.Since(lastHeartbeatSuccess)+buffer >= leaseDuration {
 						leader = false
 						elapsed = 0 // Reset to immediately retry attemptLeader
 					}
@@ -490,7 +494,7 @@ func (l *Lock) heartbeat(ctx context.Context) error {
 			}
 
 			if count == 0 {
-				return errors.New("heartbeat failed: lock row missing or token superseded")
+				return ErrTokenSuperseded
 			}
 
 			return nil
