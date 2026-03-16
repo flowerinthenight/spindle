@@ -10,17 +10,17 @@ A distributed locking library built on [Cloud Spanner](https://cloud.google.com/
 > **Note on v3**: `v3` is a big departure from `v2` in terms of locking logic and correctness. Although `v2` is heavily used in Alphaus' production and has stood the test of time, please be aware of the critical changes from `v2` to `v3` when upgrading. Key differences are:
 >
 > `v2`:
-> * **Non-atomic Acquisitions**: Required multiple network calls (an `INSERT` followed by an `UPDATE`) to acquire a lock.
-> * **Loose Heartbeats**: Unconditionally updated the `heartbeat` column without validating the current token.
+> * **Non-atomic acquisitions**: Required multiple network calls (an `INSERT` followed by an `UPDATE`) to acquire a lock.
+> * **Loose heartbeats**: Unconditionally updated the `heartbeat` column without validating the current token.
 > * **Schema**: Relied on both a `heartbeat` column and a separate `token` column.
 >
 > `v3`:
-> * **Atomic Operations**: Lock acquisition and takeover now execute in a single atomic network call via `spanner.InsertOrUpdate` within a ReadWrite transaction.
+> * **Atomic operations**: Lock acquisition and takeover now execute in a single atomic network call via `spanner.InsertOrUpdate` within a ReadWrite transaction.
 > * **Strict TrueTime**: Lease expirations are verified directly inside the transaction using Spanner's `CURRENT_TIMESTAMP()`, avoiding any local clock drift issues.
-> * **Optimistic Concurrency**: Heartbeats utilize a check-and-set mechanism (`WHERE token = @oldToken`) to ensure the lock is still held.
-> * **Context Cancellation**: Leader callbacks provide a context that is automatically cancelled upon lease loss or token mismatch, preventing split-brain scenarios.
-> * **Monotonic Fencing Token**: The heartbeat strictly advances the token (using Spanner's `PENDING_COMMIT_TIMESTAMP()`). Downstream services can enforce monotonic ordering by accepting writes where `current_token >= callback_token`.
-> * **Simplified Schema**: Consolidates lock tracking into a single `token` column.
+> * **Optimistic concurrency**: Heartbeats utilize a check-and-set mechanism (`WHERE token = @oldToken`) to ensure the lock is still held.
+> * **Context cancellation**: Leader callbacks provide a context that is automatically cancelled upon lease loss or token mismatch, preventing split-brain scenarios.
+> * **Monotonic fencing token**: The heartbeat strictly advances the token (using Spanner's `PENDING_COMMIT_TIMESTAMP()`). Downstream services can enforce monotonic ordering by accepting writes where `current_token >= callback_token`.
+> * **Simplified schema**: Consolidates lock tracking into a single `token` column.
 > * **API changes**: Duration from milliseconds to seconds, removal of `HasLock/2`, etc.
 
 Port(s):
