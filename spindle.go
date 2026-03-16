@@ -23,6 +23,8 @@ import (
 
 var ErrTokenSuperseded = errors.New("heartbeat failed: lock row missing or token superseded")
 
+// FnLeaderCallback is the function signature for the leader callback.
+// IMPORTANT: This callback must not block.
 type FnLeaderCallback func(data any, leader bool, token int64, ctx context.Context)
 
 type Option interface {
@@ -187,9 +189,8 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 		cbChIn <- cbEvent{state == 1, l.token(), evCtx}
 	}
 
-	// Returns (isLeader, token, elapsedSinceLastHeartbeat, error).
-	attemptLeader := func() (bool, int64, time.Duration, error) {
-		var token atomic.Int64
+	// Returns (isLeader, elapsedSinceLastHeartbeat, error).
+	attemptLeader := func() (bool, time.Duration, error) {
 		var spannerElapsed atomic.Int64
 
 		// Lock-free read-only check to avoid thundering herd RW transactions.
@@ -214,7 +215,6 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 				}
 
 				if currentOwner != l.id && spannerNow.Sub(lastToken) < leaseDuration {
-					token.Store(lastToken.UnixNano())
 					spannerElapsed.Store(int64(spannerNow.Sub(lastToken)))
 					return fmt.Errorf("lock held by %s", currentOwner)
 				}
@@ -225,7 +225,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 		}()
 
 		if errReadOnly != nil {
-			return false, token.Load(), time.Duration(spannerElapsed.Load()), errReadOnly
+			return false, time.Duration(spannerElapsed.Load()), errReadOnly
 		}
 
 		// Change to RW tx to attempt to acquire the lock if it's available.
@@ -253,7 +253,6 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 						}
 
 						if currentOwner != l.id && spannerNow.Sub(lastToken) < leaseDuration {
-							token.Store(lastToken.UnixNano())
 							spannerElapsed.Store(int64(spannerNow.Sub(lastToken)))
 							return fmt.Errorf("lock held by %s", currentOwner)
 						}
@@ -279,12 +278,12 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 		}()
 
 		if err != nil {
-			return false, token.Load(), time.Duration(spannerElapsed.Load()), err
+			return false, time.Duration(spannerElapsed.Load()), err
 		}
 
 		l.setToken(&cts)
 		l.logger.Printf("got the lock with token %v", l.token())
-		return true, token.Load(), 0, nil
+		return true, 0, nil
 	}
 
 	go func() {
@@ -336,7 +335,11 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 
 			var err error
 			if leader {
-				hbCtx, hbCancel := context.WithTimeout(ctx, buffer)
+				remainingSafeTime := leaseDuration - time.Since(lastHeartbeatSuccess) - buffer
+				if remainingSafeTime < 100*time.Millisecond {
+					remainingSafeTime = 100 * time.Millisecond // minimum reasonable timeout
+				}
+				hbCtx, hbCancel := context.WithTimeout(ctx, remainingSafeTime)
 				if err = l.heartbeat(hbCtx); err != nil {
 					// We failed to heartbeat. Drop leadership if the next attempt
 					// might exceed the lease duration safely window, or if the lock
@@ -351,7 +354,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 				}
 				hbCancel()
 			} else {
-				leader, _, elapsed, err = attemptLeader()
+				leader, elapsed, err = attemptLeader()
 				if leader {
 					lastHeartbeatSuccess = time.Now()
 				}
@@ -457,7 +460,7 @@ func (l *Lock) release() {
 				SQL: q.String(),
 				Params: map[string]any{
 					"name":     l.name,
-					"oldToken": time.Unix(0, l.token()),
+					"oldToken": time.Unix(0, l.token()).UTC(),
 					"owner":    l.id,
 				},
 			}
@@ -483,7 +486,7 @@ func (l *Lock) heartbeat(ctx context.Context) error {
 				SQL: q.String(),
 				Params: map[string]any{
 					"name":     l.name,
-					"oldToken": time.Unix(0, l.token()),
+					"oldToken": time.Unix(0, l.token()).UTC(),
 					"owner":    l.id,
 				},
 			}
