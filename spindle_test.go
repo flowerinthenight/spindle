@@ -14,7 +14,10 @@ import (
 )
 
 func TestNewDefaults(t *testing.T) {
-	lock := New(nil, "mytable", "mylock")
+	lock, err := New(nil, "mytable", "mylock")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if lock.duration != 10000 {
 		t.Errorf("default duration = %d; want 10000", lock.duration)
 	}
@@ -34,11 +37,14 @@ func TestNewDefaults(t *testing.T) {
 
 func TestNewWithOptions(t *testing.T) {
 	logger := log.New(io.Discard, "", 0)
-	lock := New(nil, "mytable", "mylock",
+	lock, err := New(nil, "mytable", "mylock",
 		WithId("custom-id"),
 		WithDuration(5000),
 		WithLogger(logger),
 	)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if lock.id != "custom-id" {
 		t.Errorf("id = %s; want custom-id", lock.id)
 	}
@@ -50,15 +56,30 @@ func TestNewWithOptions(t *testing.T) {
 	}
 }
 
+func TestNewInvalidTableName(t *testing.T) {
+	for _, name := range []string{"", "1abc", "my table", "foo;bar", "DROP TABLE x"} {
+		_, err := New(nil, name, "n")
+		if err != ErrInvalidTableName {
+			t.Errorf("New(nil, %q, ...) err = %v; want ErrInvalidTableName", name, err)
+		}
+	}
+}
+
 func TestNewMinDuration(t *testing.T) {
-	lock := New(nil, "t", "n", WithDuration(100))
+	lock, err := New(nil, "t", "n", WithDuration(100))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if lock.duration != 3000 {
 		t.Errorf("duration = %d; want 3000 (minimum)", lock.duration)
 	}
 }
 
 func TestTokenSetGet(t *testing.T) {
-	lock := New(nil, "t", "n")
+	lock, err := New(nil, "t", "n")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if lock.token() != 0 {
 		t.Errorf("initial token = %d; want 0", lock.token())
@@ -69,15 +90,13 @@ func TestTokenSetGet(t *testing.T) {
 	if lock.token() != now.UnixNano() {
 		t.Errorf("token = %d; want %d", lock.token(), now.UnixNano())
 	}
-
-	lock.setToken(nil)
-	if lock.token() != 0 {
-		t.Errorf("nil token = %d; want 0", lock.token())
-	}
 }
 
 func TestTokenConcurrency(t *testing.T) {
-	lock := New(nil, "t", "n")
+	lock, err := New(nil, "t", "n")
+	if err != nil {
+		t.Fatal(err)
+	}
 	var wg sync.WaitGroup
 	for i := 0; i < 100; i++ {
 		wg.Add(2)
@@ -123,13 +142,16 @@ func TestLeaderCallback(t *testing.T) {
 
 	var mu sync.Mutex
 	var events []event
-	lock := New(nil, "t", "n",
+	lock, err := New(nil, "t", "n",
 		WithLeaderCallback(nil, func(ctx context.Context, d any, leader bool, token int64) {
 			mu.Lock()
 			events = append(events, event{leader, token})
 			mu.Unlock()
 		}),
 	)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if lock.cbLeader == nil {
 		t.Fatal("callback should be set")

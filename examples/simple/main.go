@@ -19,6 +19,7 @@ func main() {
 	dbstr := flag.String("db", "", "db, fmt: projects/{v}/instances/{v}/databases/{v}")
 	table := flag.String("table", "testlease", "table name")
 	name := flag.String("name", "mylock", "lock name")
+	dbg := flag.Bool("dbg", false, "enable verbose debug logging")
 	flag.Parse()
 
 	// To run, update the database name, table name, and, optionally, the lock name.
@@ -46,13 +47,14 @@ func main() {
 	// - When you Ctrl+C the leader, it releases the lock and shuts down.
 	// - Another instance picks up leadership and starts doing work.
 	id := fmt.Sprintf("node-%d", os.Getpid())
-	lock := spindle.New(
+	lock, err := spindle.New(
 		db,
 		*table,
 		*name,
 		spindle.WithId(id),
 		spindle.WithDuration(10000),
 		spindle.WithDatabaseAdminClient(dbAdminClient),
+		spindle.WithDebug(*dbg),
 		spindle.WithLeaderCallback(nil, func(ctx context.Context, d any, leader bool, token int64) {
 			if !leader {
 				log.Printf("[%s] lost leadership, stopping work", id)
@@ -78,6 +80,10 @@ func main() {
 			}()
 		}),
 	)
+	if err != nil {
+		log.Println(err)
+		return
+	}
 
 	done := make(chan error, 1)
 	lock.Run(quit, done) // start main loop

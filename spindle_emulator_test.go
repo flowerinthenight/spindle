@@ -107,7 +107,7 @@ func TestSpannerEmulatorFailover(t *testing.T) {
 	doneA := make(chan error, 1)
 
 	var onceA sync.Once
-	lockA := New(spannerClient, tableName, lockName,
+	lockA, err := New(spannerClient, tableName, lockName,
 		WithDuration(leaseDuration),
 		WithId("node-A"),
 		WithLogger(log.New(os.Stdout, "[Node-A] ", log.LstdFlags)),
@@ -122,6 +122,9 @@ func TestSpannerEmulatorFailover(t *testing.T) {
 			}
 		}),
 	)
+	if err != nil {
+		t.Fatalf("Failed to create lockA: %v", err)
+	}
 
 	// Start Node A.
 	lockA.Run(quitA, doneA)
@@ -139,7 +142,7 @@ func TestSpannerEmulatorFailover(t *testing.T) {
 	doneB := make(chan error, 1)
 
 	var onceB sync.Once
-	lockB := New(spannerClient, tableName, lockName,
+	lockB, err := New(spannerClient, tableName, lockName,
 		WithDuration(leaseDuration),
 		WithId("node-B"),
 		WithLogger(log.New(os.Stdout, "[Node-B] ", log.LstdFlags)),
@@ -157,6 +160,9 @@ func TestSpannerEmulatorFailover(t *testing.T) {
 			}
 		}),
 	)
+	if err != nil {
+		t.Fatalf("Failed to create lockB: %v", err)
+	}
 
 	// Start Node B.
 	lockB.Run(quitB, doneB)

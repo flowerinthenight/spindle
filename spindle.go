@@ -7,6 +7,7 @@ import (
 	"log"
 	"math/rand"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -22,6 +23,9 @@ import (
 )
 
 var ErrTokenSuperseded = errors.New("heartbeat failed: lock row missing or token superseded")
+var ErrInvalidTableName = errors.New("spindle: table name must match [a-zA-Z_][a-zA-Z0-9_]*")
+
+var validTableName = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 
 // FnLeaderCallback is the function signature for the leader callback.
 // IMPORTANT: This callback must not block.
@@ -84,6 +88,13 @@ func (w withLogger) Apply(o *Lock) { o.logger = w.l }
 // WithLogger sets the locker's logger object.
 func WithLogger(v *log.Logger) Option { return withLogger{v} }
 
+type withDebug bool
+
+func (w withDebug) Apply(o *Lock) { o.debug = bool(w) }
+
+// WithDebug enables verbose per-iteration logging.
+func WithDebug(v bool) Option { return withDebug(v) }
+
 type Lock struct {
 	db       *spanner.Client
 	dbAdmin  *admin.DatabaseAdminClient
@@ -96,20 +107,21 @@ type Lock struct {
 	ttoken   *time.Time
 	mtx      *sync.Mutex
 	logger   *log.Logger
+	debug    bool
 	active   atomic.Int32
 
 	cbLeader     FnLeaderCallback // leader callback
 	cbLeaderData any              // arbitrary data passed to fnLeader
 }
 
-// Run starts the main lock loop which can be canceled using the input context. You can
-// provide an optional done channel if you want to be notified when the loop is done.
-func (l *Lock) Run(ctx context.Context, done ...chan error) {
+// Run starts the main lock loop which can be canceled using the input context.
+// If done is non-nil, a nil or error value is sent when the loop exits.
+func (l *Lock) Run(ctx context.Context, done chan error) {
 	err := l.ensureLockTable(ctx)
 	if err != nil {
-		if len(done) > 0 {
+		if done != nil {
 			select {
-			case done[0] <- err:
+			case done <- err:
 			default:
 			}
 		}
@@ -291,9 +303,9 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 			close(cbChIn)
 			wgSend.Wait()
 			wgCb.Wait()
-			if len(done) > 0 {
+			if done != nil {
 				select {
-				case done[0] <- nil:
+				case done <- nil:
 				default:
 				}
 			}
@@ -408,15 +420,17 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 				expire = buffer
 			}
 
-			me := "not me"
-			if leader {
-				me = "me"
-			}
-
-			l.logger.Printf("expire=%v, buffer=%v, leader active (%v) (%v)", expire, buffer, me, l.Iterations())
 			timer.Reset(expire)
 
-			l.logger.Printf("round %v took %v", l.Iterations(), time.Since(start))
+			if l.debug {
+				me := "not me"
+				if leader {
+					me = "me"
+				}
+
+				l.logger.Printf("expire=%v, buffer=%v, leader active (%v) (%v)", expire, buffer, me, l.Iterations())
+				l.logger.Printf("round %v took %v", l.Iterations(), time.Since(start))
+			}
 		}
 	}()
 }
@@ -564,7 +578,11 @@ func errAlreadyExists(err error) bool {
 }
 
 // New returns a lock object with a default of 10s lease duration.
-func New(db *spanner.Client, table, name string, o ...Option) *Lock {
+func New(db *spanner.Client, table, name string, o ...Option) (*Lock, error) {
+	if !validTableName.MatchString(table) {
+		return nil, ErrInvalidTableName
+	}
+
 	var dbPath string
 	if db != nil {
 		dbPath = db.DatabaseName()
@@ -594,5 +612,5 @@ func New(db *spanner.Client, table, name string, o ...Option) *Lock {
 		lock.duration = 3000 // minimum
 	}
 
-	return lock
+	return lock, nil
 }
