@@ -10,7 +10,7 @@ A distributed locking library built on [Cloud Spanner](https://cloud.google.com/
 > **Note on v3**: `v3` is a big departure from `v2` in terms of locking logic and correctness. Although `v2` is heavily used in Alphaus' production and has stood the test of time, please be aware of the critical changes from `v2` to `v3` when upgrading. Key differences are:
 >
 > `v2`:
-> * **Non-atomic acquisitions**: Required multiple network calls (an `INSERT` followed by an `UPDATE`) to acquire a lock.
+> * **Non-atomic acquisitions**: Required two network calls (an `INSERT` followed by an `UPDATE`) to acquire a lock.
 > * **Loose heartbeats**: Unconditionally updated the `heartbeat` column without validating the current token.
 > * **Schema**: Relied on both a `heartbeat` column and a separate `token` column.
 >
