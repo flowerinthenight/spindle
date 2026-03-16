@@ -18,8 +18,8 @@ func TestNewDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if lock.duration != 10000 {
-		t.Errorf("default duration = %d; want 10000", lock.duration)
+	if lock.duration != 10 {
+		t.Errorf("default duration = %d; want 10", lock.duration)
 	}
 	if lock.table != "mytable" {
 		t.Errorf("table = %s; want mytable", lock.table)
@@ -39,7 +39,7 @@ func TestNewWithOptions(t *testing.T) {
 	logger := log.New(io.Discard, "", 0)
 	lock, err := New(nil, "mytable", "mylock",
 		WithId("custom-id"),
-		WithDuration(5000),
+		WithDuration(5),
 		WithLogger(logger),
 	)
 	if err != nil {
@@ -48,8 +48,8 @@ func TestNewWithOptions(t *testing.T) {
 	if lock.id != "custom-id" {
 		t.Errorf("id = %s; want custom-id", lock.id)
 	}
-	if lock.duration != 5000 {
-		t.Errorf("duration = %d; want 5000", lock.duration)
+	if lock.duration != 5 {
+		t.Errorf("duration = %d; want 5", lock.duration)
 	}
 	if lock.logger != logger {
 		t.Error("logger should match provided logger")
@@ -66,12 +66,12 @@ func TestNewInvalidTableName(t *testing.T) {
 }
 
 func TestNewMinDuration(t *testing.T) {
-	lock, err := New(nil, "t", "n", WithDuration(100))
+	lock, err := New(nil, "t", "n", WithDuration(2))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if lock.duration != 5000 {
-		t.Errorf("duration = %d; want 5000 (minimum)", lock.duration)
+	if lock.duration != 5 {
+		t.Errorf("duration = %d; want 5 (minimum)", lock.duration)
 	}
 }
 

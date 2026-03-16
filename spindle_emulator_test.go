@@ -93,7 +93,7 @@ func TestSpannerEmulatorFailover(t *testing.T) {
 
 	tableName := "test_lock_table"
 	lockName := "my_test_lock"
-	leaseDuration := int64(5000) // 5 seconds for faster testing
+	leaseDuration := int64(5) // 5 seconds for faster testing
 
 	var mu sync.Mutex
 	var leaderB bool
@@ -168,7 +168,7 @@ func TestSpannerEmulatorFailover(t *testing.T) {
 	lockB.Run(quitB, doneB)
 
 	// Wait a bit to ensure B doesn't take over prematurely.
-	time.Sleep(time.Duration(leaseDuration) * time.Millisecond)
+	time.Sleep(time.Duration(leaseDuration) * time.Second)
 
 	mu.Lock()
 	if leaderB {
@@ -185,7 +185,7 @@ func TestSpannerEmulatorFailover(t *testing.T) {
 	select {
 	case <-nodeBBecameLeader:
 		t.Log("Failover successful: Node B became leader")
-	case <-time.After(time.Duration(leaseDuration)*2*time.Millisecond + 10*time.Second):
+	case <-time.After(time.Duration(leaseDuration)*2*time.Second + 10*time.Second):
 		t.Fatal("Node B did not become leader after Node A was cancelled")
 	}
 

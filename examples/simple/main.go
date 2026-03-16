@@ -52,7 +52,7 @@ func main() {
 		*table,
 		*name,
 		spindle.WithId(id),
-		spindle.WithDuration(10000),
+		spindle.WithDuration(10),
 		spindle.WithDatabaseAdminClient(dbAdminClient),
 		spindle.WithDebug(*dbg),
 		spindle.WithLeaderCallback(nil, func(ctx context.Context, d any, leader bool, token int64) {

@@ -46,7 +46,7 @@ type withDuration int64
 
 func (w withDuration) Apply(o *Lock) { o.duration = int64(w) }
 
-// WithDuration sets the locker's lease duration in ms. Minimum is 5000ms.
+// WithDuration sets the locker's lease duration in seconds. Minimum is 5s.
 func WithDuration(v int64) Option { return withDuration(v) }
 
 type withLeaderCallback struct {
@@ -102,7 +102,7 @@ type Lock struct {
 	table    string // table name
 	name     string // lock name
 	id       string // unique id for this instance
-	duration int64  // lock duration in ms
+	duration int64  // lock duration in seconds
 	iter     atomic.Int64
 	ttoken   *time.Time
 	mtx      *sync.Mutex
@@ -130,7 +130,7 @@ func (l *Lock) Run(ctx context.Context, done chan error) {
 	}
 
 	l.active.Store(1)
-	leaseDuration := time.Millisecond * time.Duration(l.duration)
+	leaseDuration := time.Second * time.Duration(l.duration)
 
 	type cbEvent struct {
 		leader bool
@@ -435,7 +435,7 @@ func (l *Lock) Run(ctx context.Context, done chan error) {
 	}()
 }
 
-// Duration returns the duration in main loop in milliseconds.
+// Duration returns the duration in main loop in seconds.
 func (l *Lock) Duration() int64 { return l.duration }
 
 // Iterations returns the number of iterations done by the main loop.
@@ -595,7 +595,7 @@ func New(db *spanner.Client, table, name string, o ...Option) (*Lock, error) {
 		name:     name,
 		id:       uuid.New().String(),
 		mtx:      &sync.Mutex{},
-		duration: 10000,
+		duration: 10,
 	}
 
 	for _, opt := range o {
@@ -607,9 +607,9 @@ func New(db *spanner.Client, table, name string, o ...Option) (*Lock, error) {
 		lock.logger = log.New(os.Stdout, prefix, log.LstdFlags)
 	}
 
-	if lock.duration < 5000 {
+	if lock.duration < 5 {
 		lock.logger.Println("setting duration to 5s (minimum)")
-		lock.duration = 5000 // minimum
+		lock.duration = 5 // minimum
 	}
 
 	return lock, nil

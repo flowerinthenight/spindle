@@ -67,7 +67,7 @@ func main() {
     quit, cancel := context.WithCancel(ctx)
     lock := spindle.New(
         db, "locktable", "mylock",
-        spindle.WithDuration(10000),
+        spindle.WithDuration(10),
         spindle.WithDatabaseAdminClient(dbAdmin),
         spindle.WithLeaderCallback(nil,
             func(d any, leader bool, token int64, ctx context.Context) {
