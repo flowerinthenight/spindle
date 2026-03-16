@@ -11,7 +11,7 @@ A distributed locking library built on [Cloud Spanner](https://cloud.google.com/
 >
 > `v2`:
 > * **Non-atomic Acquisitions**: Required multiple network calls (an `INSERT` followed by an `UPDATE`) to acquire a lock.
-> * **Loose Heartbeats**: Unconditionally updated the heartbeat column without validating the current token.
+> * **Loose Heartbeats**: Unconditionally updated the `heartbeat` column without validating the current token.
 > * **Schema**: Relied on both a `heartbeat` column and a separate `token` column.
 >
 > `v3`:
