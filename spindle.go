@@ -203,7 +203,7 @@ func (l *Lock) Run(ctx context.Context, done chan error) {
 
 	// Returns (isLeader, elapsedSinceLastHeartbeat, error).
 	attemptLeader := func() (bool, time.Duration, error) {
-		var spannerElapsed atomic.Int64
+		var spannerElapsed time.Duration
 
 		// Lock-free read-only check to avoid thundering herd RW transactions.
 		errReadOnly := func() error {
@@ -227,7 +227,7 @@ func (l *Lock) Run(ctx context.Context, done chan error) {
 				}
 
 				if currentOwner != l.id && spannerNow.Sub(lastToken) < leaseDuration {
-					spannerElapsed.Store(int64(spannerNow.Sub(lastToken)))
+					spannerElapsed = spannerNow.Sub(lastToken)
 					return fmt.Errorf("lock held by %s", currentOwner)
 				}
 			} else if err != iterator.Done {
@@ -237,11 +237,13 @@ func (l *Lock) Run(ctx context.Context, done chan error) {
 		}()
 
 		if errReadOnly != nil {
-			return false, time.Duration(spannerElapsed.Load()), errReadOnly
+			return false, spannerElapsed, errReadOnly
 		}
 
 		// Change to RW tx to attempt to acquire the lock if it's available.
-		l.logger.Printf("get lock for %v/%v", l.table, l.name)
+		if l.debug {
+			l.logger.Printf("get lock for %v/%v", l.table, l.name)
+		}
 		cts, err := func() (time.Time, error) {
 			ts, err := l.db.ReadWriteTransaction(ctx,
 				func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
@@ -265,7 +267,7 @@ func (l *Lock) Run(ctx context.Context, done chan error) {
 						}
 
 						if currentOwner != l.id && spannerNow.Sub(lastToken) < leaseDuration {
-							spannerElapsed.Store(int64(spannerNow.Sub(lastToken)))
+							spannerElapsed = spannerNow.Sub(lastToken)
 							return fmt.Errorf("lock held by %s", currentOwner)
 						}
 					} else if err != iterator.Done {
@@ -290,7 +292,7 @@ func (l *Lock) Run(ctx context.Context, done chan error) {
 		}()
 
 		if err != nil {
-			return false, time.Duration(spannerElapsed.Load()), err
+			return false, spannerElapsed, err
 		}
 
 		l.setToken(&cts)
@@ -494,11 +496,11 @@ func (l *Lock) heartbeat(ctx context.Context) error {
 	cts, err := l.db.ReadWriteTransaction(ctx,
 		func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 			var q strings.Builder
-			fmt.Fprintf(&q, "update %s ", l.table)
-			fmt.Fprintf(&q, "set token = PENDING_COMMIT_TIMESTAMP() ")
-			fmt.Fprintf(&q, "where name = @name ")
-			fmt.Fprintf(&q, "and token = @oldToken ")
-			fmt.Fprintf(&q, "and owner = @owner")
+			fmt.Fprintf(&q, "UPDATE %s ", l.table)
+			fmt.Fprintf(&q, "SET token = PENDING_COMMIT_TIMESTAMP() ")
+			fmt.Fprintf(&q, "WHERE name = @name ")
+			fmt.Fprintf(&q, "AND token = @oldToken ")
+			fmt.Fprintf(&q, "AND owner = @owner")
 			stmt := spanner.Statement{
 				SQL: q.String(),
 				Params: map[string]any{
