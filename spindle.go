@@ -25,7 +25,7 @@ var ErrTokenSuperseded = errors.New("heartbeat failed: lock row missing or token
 
 // FnLeaderCallback is the function signature for the leader callback.
 // IMPORTANT: This callback must not block.
-type FnLeaderCallback func(data any, leader bool, token int64, ctx context.Context)
+type FnLeaderCallback func(ctx context.Context, data any, leader bool, token int64)
 
 type Option interface {
 	Apply(*Lock)
@@ -163,7 +163,7 @@ func (l *Lock) Run(ctx context.Context, done ...chan error) {
 	wgCb.Go(func() {
 		for ev := range cbChOut {
 			if l.cbLeader != nil {
-				l.cbLeader(l.cbLeaderData, ev.leader, ev.token, ev.ctx)
+				l.cbLeader(ev.ctx, l.cbLeaderData, ev.leader, ev.token)
 			}
 		}
 	})
@@ -427,6 +427,9 @@ func (l *Lock) Duration() int64 { return l.duration }
 // Iterations returns the number of iterations done by the main loop.
 func (l *Lock) Iterations() int64 { return l.iter.Load() }
 
+// Active reports whether the main lock loop is running.
+func (l *Lock) Active() bool { return l.active.Load() == 1 }
+
 // Client returns the Spanner client.
 func (l *Lock) Client() *spanner.Client { return l.db }
 
@@ -532,8 +535,7 @@ func (l *Lock) ensureLockTable(ctx context.Context) error {
 
 	if err != nil {
 		if errAlreadyExists(err) {
-			err = nil // someone else is already creating it or it exists
-			return err
+			return nil
 		}
 
 		return fmt.Errorf("spindle: failed to start DDL for %s: %w", l.table, err)
@@ -542,8 +544,7 @@ func (l *Lock) ensureLockTable(ctx context.Context) error {
 	err = op.Wait(ctx)
 	if err != nil {
 		if errAlreadyExists(err) {
-			err = nil // someone else is already creating it or it exists
-			return err
+			return nil
 		}
 
 		return fmt.Errorf("spindle: DDL failed for %s: %w", l.table, err)

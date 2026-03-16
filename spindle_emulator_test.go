@@ -26,7 +26,7 @@ func TestSpannerEmulatorFailover(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	conn, err := grpc.Dial(emulatorHost, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(emulatorHost, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		t.Fatalf("Failed to dial emulator: %v", err)
 	}
@@ -111,7 +111,7 @@ func TestSpannerEmulatorFailover(t *testing.T) {
 		WithDuration(leaseDuration),
 		WithId("node-A"),
 		WithLogger(log.New(os.Stdout, "[Node-A] ", log.LstdFlags)),
-		WithLeaderCallback(nil, func(d any, leader bool, token int64, lctx context.Context) {
+		WithLeaderCallback(nil, func(lctx context.Context, d any, leader bool, token int64) {
 			if leader {
 				t.Logf("Node A is leader, token: %d", token)
 				onceA.Do(func() {
@@ -143,7 +143,7 @@ func TestSpannerEmulatorFailover(t *testing.T) {
 		WithDuration(leaseDuration),
 		WithId("node-B"),
 		WithLogger(log.New(os.Stdout, "[Node-B] ", log.LstdFlags)),
-		WithLeaderCallback(nil, func(d any, leader bool, token int64, lctx context.Context) {
+		WithLeaderCallback(nil, func(lctx context.Context, d any, leader bool, token int64) {
 			mu.Lock()
 			leaderB = leader
 			mu.Unlock()
