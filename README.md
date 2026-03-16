@@ -71,7 +71,7 @@ func main() {
         spindle.WithDuration(10),
         spindle.WithDatabaseAdminClient(dbAdmin),
         spindle.WithLeaderCallback(nil,
-            func(d any, leader bool, token int64, ctx context.Context) {
+            func(ctx context.Context, d any, leader bool, token int64) {
             if !leader {
                 return // lost leadership
             }
