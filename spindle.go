@@ -241,9 +241,7 @@ func (l *Lock) Run(ctx context.Context, done chan error) {
 		}
 
 		// Change to RW tx to attempt to acquire the lock if it's available.
-		if l.debug {
-			l.logger.Printf("get lock for %v/%v", l.table, l.name)
-		}
+		l.logger.Printf("get lock for %v/%v", l.table, l.name)
 		cts, err := func() (time.Time, error) {
 			ts, err := l.db.ReadWriteTransaction(ctx,
 				func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
