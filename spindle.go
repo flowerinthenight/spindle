@@ -46,7 +46,7 @@ type withDuration int64
 
 func (w withDuration) Apply(o *Lock) { o.duration = int64(w) }
 
-// WithDuration sets the locker's lease duration in ms. Minimum is 3000ms.
+// WithDuration sets the locker's lease duration in ms. Minimum is 5000ms.
 func WithDuration(v int64) Option { return withDuration(v) }
 
 type withLeaderCallback struct {
@@ -315,7 +315,7 @@ func (l *Lock) Run(ctx context.Context, done chan error) {
 		defer timer.Stop()
 
 		// Scale the latency buffer dynamically based on lease duration.
-		// For a 10s lease, floor is 500ms. For a 3s lease, floor is 150ms.
+		// For a 10s lease, floor is 500ms. For a 5s lease, floor is 250ms.
 		bufferFloor := max(50*time.Millisecond, leaseDuration/20)
 		bufferCeil := leaseDuration / 3
 		var avgLatency time.Duration
@@ -607,9 +607,9 @@ func New(db *spanner.Client, table, name string, o ...Option) (*Lock, error) {
 		lock.logger = log.New(os.Stdout, prefix, log.LstdFlags)
 	}
 
-	if lock.duration < 3000 {
-		lock.logger.Println("setting duration to 3s (minimum)")
-		lock.duration = 3000 // minimum
+	if lock.duration < 5000 {
+		lock.logger.Println("setting duration to 5s (minimum)")
+		lock.duration = 5000 // minimum
 	}
 
 	return lock, nil

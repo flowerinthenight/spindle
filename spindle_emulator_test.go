@@ -93,7 +93,7 @@ func TestSpannerEmulatorFailover(t *testing.T) {
 
 	tableName := "test_lock_table"
 	lockName := "my_test_lock"
-	leaseDuration := int64(3000) // 3 seconds for faster testing
+	leaseDuration := int64(5000) // 5 seconds for faster testing
 
 	var mu sync.Mutex
 	var leaderB bool

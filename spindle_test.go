@@ -70,8 +70,8 @@ func TestNewMinDuration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if lock.duration != 3000 {
-		t.Errorf("duration = %d; want 3000 (minimum)", lock.duration)
+	if lock.duration != 5000 {
+		t.Errorf("duration = %d; want 5000 (minimum)", lock.duration)
 	}
 }
 
