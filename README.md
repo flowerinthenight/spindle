@@ -21,6 +21,7 @@ A distributed locking library built on [Cloud Spanner](https://cloud.google.com/
 > * **Context Cancellation**: Leader callbacks provide a context that is automatically cancelled upon lease loss or token mismatch, preventing split-brain scenarios.
 > * **Monotonic Fencing Token**: The heartbeat strictly advances the token (using Spanner's `PENDING_COMMIT_TIMESTAMP()`). Downstream services can enforce monotonic ordering by accepting writes where `current_token >= callback_token`.
 > * **Simplified Schema**: Consolidates lock tracking into a single `token` column.
+> * **API changes**: Duration from milliseconds to seconds, removal of `HasLock/2`, etc.
 
 Port(s):
 * [spindle-rs](https://github.com/flowerinthenight/spindle-rs) - a port written in Rust
