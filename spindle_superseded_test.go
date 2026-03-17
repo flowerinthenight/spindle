@@ -42,7 +42,9 @@ func TestSpannerEmulatorTokenSuperseded(t *testing.T) {
 
 	projectID := "test-project"
 	instanceID := "test-instance"
-	dbID := fmt.Sprintf("test-db-super-%d", time.Now().UnixNano())
+	// Use a dynamic database name to avoid AlreadyExists errors if ran back-to-back with other tests.
+	// Keep it under 30 characters for Spanner limits.
+	dbID := fmt.Sprintf("db%d", time.Now().UnixNano()%1000000000)
 
 	createInstanceOp, err := instanceAdminClient.CreateInstance(ctx, &instancepb.CreateInstanceRequest{
 		Parent:     fmt.Sprintf("projects/%s", projectID),
