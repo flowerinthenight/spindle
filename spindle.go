@@ -359,9 +359,7 @@ func (l *Lock) Run(ctx context.Context, done chan error) {
 			var err error
 			if leader {
 				remainingSafeTime := leaseDuration - time.Since(lastHeartbeatSuccess) - buffer
-				if remainingSafeTime < 100*time.Millisecond {
-					remainingSafeTime = 100 * time.Millisecond // minimum reasonable timeout
-				}
+				remainingSafeTime = max(remainingSafeTime, 100*time.Millisecond) // minimum timeout
 				hbCtx, hbCancel := context.WithTimeout(ctx, remainingSafeTime)
 				if err = l.heartbeat(hbCtx); err != nil {
 					// We failed to heartbeat. Drop leadership if the next attempt
