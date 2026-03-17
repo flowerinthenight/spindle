@@ -27,8 +27,11 @@ func TestNewDefaults(t *testing.T) {
 	if lock.name != "mylock" {
 		t.Errorf("name = %s; want mylock", lock.name)
 	}
-	if lock.id == "" {
+	if lock.id == "" || lock.Id() == "" {
 		t.Error("id should be auto-generated")
+	}
+	if lock.Id() != lock.id {
+		t.Errorf("Id() = %s; want %s", lock.Id(), lock.id)
 	}
 	if lock.logger == nil {
 		t.Error("logger should be set by default")

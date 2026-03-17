@@ -456,6 +456,9 @@ func (l *Lock) Active() bool { return l.active.Load() == 1 }
 // Client returns the Spanner client.
 func (l *Lock) Client() *spanner.Client { return l.db }
 
+// Id returns the unique id for this instance.
+func (l *Lock) Id() string { return l.id }
+
 func (l *Lock) token() int64 {
 	l.mtx.Lock()
 	defer l.mtx.Unlock()
