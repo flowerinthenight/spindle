@@ -52,19 +52,19 @@ func main() {
 		*table,
 		*name,
 		spindle.WithId(id),
-		spindle.WithDuration(10),
+		spindle.WithDuration(15),
 		spindle.WithDatabaseAdminClient(dbAdminClient),
 		spindle.WithDebug(*dbg),
-		spindle.WithLeaderCallback(nil, func(ctx context.Context, d any, leader bool, token int64) {
-			if !leader {
+		spindle.WithLeaderCallback(nil, func(ctx context.Context, state spindle.LeaderState) {
+			if !state.Leader {
 				log.Printf("[%s] lost leadership, stopping work", id)
 				return
 			}
 
-			log.Printf("[%s] became leader, token=%v", id, token)
+			log.Printf("[%s] selected as leader, token: %v", id, state.Token)
 
 			// Do leader work using ctx; cancelled when leadership is lost.
-			// Use token as a fencing token for downstream conditional writes.
+			// Use state.Token as a fencing token for downstream conditional writes.
 			go func() {
 				ticker := time.NewTicker(2 * time.Second)
 				defer ticker.Stop()
@@ -74,7 +74,7 @@ func main() {
 						log.Printf("[%s] leader context cancelled", id)
 						return
 					case <-ticker.C:
-						log.Printf("[%s] doing leader work (token=%v)", id, token)
+						log.Printf("[%s] doing leader work (token=%v)", id, state.Token)
 					}
 				}
 			}()

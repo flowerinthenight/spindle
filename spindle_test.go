@@ -143,9 +143,9 @@ func TestLeaderCallback(t *testing.T) {
 	var mu sync.Mutex
 	var events []event
 	lock, err := New(nil, "t", "n",
-		WithLeaderCallback(nil, func(ctx context.Context, d any, leader bool, token int64) {
+		WithLeaderCallback(nil, func(ctx context.Context, state LeaderState) {
 			mu.Lock()
-			events = append(events, event{leader, token})
+			events = append(events, event{state.Leader, state.Token})
 			mu.Unlock()
 		}),
 	)
@@ -159,8 +159,8 @@ func TestLeaderCallback(t *testing.T) {
 
 	ts := time.Now()
 	lock.setToken(&ts)
-	lock.cbLeader(context.Background(), lock.cbLeaderData, true, lock.token())
-	lock.cbLeader(context.Background(), lock.cbLeaderData, false, 0)
+	lock.cbLeader(context.Background(), LeaderState{Data: lock.cbLeaderData, Leader: true, Token: lock.token()})
+	lock.cbLeader(context.Background(), LeaderState{Data: lock.cbLeaderData, Leader: false, Token: 0})
 
 	mu.Lock()
 	defer mu.Unlock()

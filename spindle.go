@@ -27,9 +27,16 @@ var ErrInvalidTableName = errors.New("spindle: table name must match [a-zA-Z_][a
 
 var validTableName = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 
-// FnLeaderCallback is the function signature for the leader callback.
+// LeaderState represents the state of the lock passed to the leader callback.
+type LeaderState struct {
+	Data   any   // arbitrary data passed via WithLeaderCallback
+	Leader bool  // true if the current node is the leader
+	Token  int64 // the fencing token (timestamp) of the current lock
+}
+
+// LeaderCallback is the function signature for the leader callback.
 // IMPORTANT: This callback must not block.
-type FnLeaderCallback func(ctx context.Context, data any, leader bool, token int64)
+type LeaderCallback func(ctx context.Context, state LeaderState)
 
 type Option interface {
 	Apply(*Lock)
@@ -51,7 +58,7 @@ func WithDuration(v int64) Option { return withDuration(v) }
 
 type withLeaderCallback struct {
 	d any
-	h FnLeaderCallback
+	h LeaderCallback
 }
 
 func (w withLeaderCallback) Apply(o *Lock) {
@@ -63,7 +70,7 @@ func (w withLeaderCallback) Apply(o *Lock) {
 // selected (or deselected). When leader is true, the provided context is
 // cancelled when leadership is lost. Use the token as a fencing token for
 // downstream writes.
-func WithLeaderCallback(d any, h FnLeaderCallback) Option {
+func WithLeaderCallback(d any, h LeaderCallback) Option {
 	return withLeaderCallback{d, h}
 }
 
@@ -75,8 +82,9 @@ func (w withDbAdminClient) Apply(o *Lock) {
 	o.dbAdmin = w.c
 }
 
-// WithDatabaseAdminClient sets Lock's database admin client, which is used for
-// creating the lock table if it doesn't exist. Create table permissions required.
+// WithDatabaseAdminClient sets Lock's database admin client, which
+// is used for creating the lock table if it doesn't exist. Create
+// table permissions required.
 func WithDatabaseAdminClient(c *admin.DatabaseAdminClient) Option {
 	return withDbAdminClient{c}
 }
@@ -110,8 +118,8 @@ type Lock struct {
 	debug    bool
 	active   atomic.Int32
 
-	cbLeader     FnLeaderCallback // leader callback
-	cbLeaderData any              // arbitrary data passed to fnLeader
+	cbLeader     LeaderCallback // leader callback
+	cbLeaderData any            // arbitrary data passed to fnLeader
 }
 
 // Run starts the main lock loop which can be canceled using the input context.
@@ -175,7 +183,11 @@ func (l *Lock) Run(ctx context.Context, done chan error) {
 	wgCb.Go(func() {
 		for ev := range cbChOut {
 			if l.cbLeader != nil {
-				l.cbLeader(ev.ctx, l.cbLeaderData, ev.leader, ev.token)
+				l.cbLeader(ev.ctx, LeaderState{
+					Data:   l.cbLeaderData,
+					Leader: ev.leader,
+					Token:  ev.token,
+				})
 			}
 		}
 	})
@@ -225,7 +237,6 @@ func (l *Lock) Run(ctx context.Context, done chan error) {
 				if err := row.Columns(&currentOwner, &lastToken, &spannerNow); err != nil {
 					return err
 				}
-
 				if currentOwner != l.id && spannerNow.Sub(lastToken) < leaseDuration {
 					spannerElapsed = spannerNow.Sub(lastToken)
 					return fmt.Errorf("lock held by %s", currentOwner)

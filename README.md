@@ -71,14 +71,14 @@ func main() {
         spindle.WithDuration(10),
         spindle.WithDatabaseAdminClient(dbAdmin),
         spindle.WithLeaderCallback(nil,
-            func(ctx context.Context, d any, leader bool, token int64) {
-            if !leader {
+            func(ctx context.Context, state spindle.LeaderState) {
+            if !state.Leader {
                 return // lost leadership
             }
 
             // Do leader work using ctx; cancelled when leadership is lost.
-            // Use token as a fencing token for downstream conditional writes.
-            // NOTE: Use the token monotonically (e.g. >= token) as heartbeats
+            // Use state.Token as a fencing token for downstream conditional writes.
+            // NOTE: Use the token monotonically (e.g. >= state.Token) as heartbeats
             // will advance the token stored in the database.
             // IMPORTANT: You must honor 'ctx' to avoid split-brain scenarios.
             go func() {

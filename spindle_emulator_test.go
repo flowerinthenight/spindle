@@ -111,9 +111,9 @@ func TestSpannerEmulatorFailover(t *testing.T) {
 		WithDuration(leaseDuration),
 		WithId("node-A"),
 		WithLogger(log.New(os.Stdout, "[Node-A] ", log.LstdFlags)),
-		WithLeaderCallback(nil, func(lctx context.Context, d any, leader bool, token int64) {
-			if leader {
-				t.Logf("Node A is leader, token: %d", token)
+		WithLeaderCallback(nil, func(lctx context.Context, state LeaderState) {
+			if state.Leader {
+				t.Logf("Node A is leader, token: %d", state.Token)
 				onceA.Do(func() {
 					close(nodeABecameLeader)
 				})
@@ -146,12 +146,12 @@ func TestSpannerEmulatorFailover(t *testing.T) {
 		WithDuration(leaseDuration),
 		WithId("node-B"),
 		WithLogger(log.New(os.Stdout, "[Node-B] ", log.LstdFlags)),
-		WithLeaderCallback(nil, func(lctx context.Context, d any, leader bool, token int64) {
+		WithLeaderCallback(nil, func(lctx context.Context, state LeaderState) {
 			mu.Lock()
-			leaderB = leader
+			leaderB = state.Leader
 			mu.Unlock()
-			if leader {
-				t.Logf("Node B is leader, token: %d", token)
+			if state.Leader {
+				t.Logf("Node B is leader, token: %d", state.Token)
 				onceB.Do(func() {
 					close(nodeBBecameLeader)
 				})
