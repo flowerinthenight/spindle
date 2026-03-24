@@ -7,7 +7,7 @@ CONSTANTS
 
 VARIABLES
     db_token,        \* The current token (commit timestamp) in the database; 0 = row absent
-    db_owner,       \* The current lock holder id in the database; 0 = no holder
+    db_owner,        \* The current lock holder id in the database; 0 = no holder
     node_token,      \* The token locally held by each node
     now              \* Logical global clock representing Spanner's TrueTime
 
@@ -40,7 +40,7 @@ AttemptInitialLock(n) ==
 Heartbeat(n) ==
     /\ node_token[n] > 0
     /\ db_token = node_token[n]   \* CAS: token must match
-    /\ db_owner = n              \* CAS: writer must match
+    /\ db_owner = n               \* CAS: writer must match
     /\ db_token' = now
     /\ db_owner' = n
     /\ node_token' = [node_token EXCEPT ![n] = now]
